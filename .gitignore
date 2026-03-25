@@ -1,0 +1,87 @@
+# ==============================
+# Build Outputs (GBA / devkitARM)
+# ==============================
+*.o
+*.elf
+*.gba
+*.map
+*.lst
+*.sym
+*.bin
+
+# Intermediate compilation files
+*.d
+*.i
+*.s
+
+# ==============================
+# Save Files / Emulator
+# ==============================
+*.sav
+*.ss0
+*.ss1
+*.ss2
+*.ss3
+*.ss4
+*.ss5
+*.ss6
+*.ss7
+*.ss8
+*.ss9
+*.state
+
+# mGBA / emulator configs
+*.mgba
+*.cfg
+
+# ==============================
+# OS Files
+# ==============================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==============================
+# Editor / IDE Files
+# ==============================
+.vscode/
+.idea/
+*.code-workspace
+
+# Swap / temp files
+*.swp
+*.swo
+*~
+
+# ==============================
+# Logs
+# ==============================
+*.log
+
+# ==============================
+# Docker / Build Environment
+# ==============================
+# (usually nothing generated, but safe to include)
+docker-compose.override.yml
+
+# ==============================
+# Generated Assets (optional)
+# ==============================
+# Uncomment if you ever auto-generate assets
+# *.png
+# *.bmp
+# *.pal
+
+# ==============================
+# Archives
+# ==============================
+*.zip
+*.tar
+*.tar.gz
+
+# ==============================
+# Misc
+# ==============================
+# Ignore backup files
+*.bak
+*.tmp
