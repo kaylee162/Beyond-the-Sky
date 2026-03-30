@@ -2310,16 +2310,13 @@ const unsigned char fontdata[12288] = {
 
 // --- Minimal GBA VRAM helpers for Mode 0 BG text tiles ---
 // These addresses are standard for BG tilemaps/tiles in Mode 0.
-#define CHARBLOCK_BASE ((volatile unsigned int*)0x6000000)   // raw VRAM base
+#define CHARBLOCK_BASE ((volatile unsigned int*)0x6000000)
 #define CHARBLOCK_OFFSET(cb) ((cb) * 0x4000)                 // 16KB per charblock
 #define SCREENBLOCK_BASE ((volatile unsigned short*)0x6000000)
 #define SCREENBLOCK_OFFSET(sb) ((sb) * 0x800)                // 2KB per screenblock
 
-// BG palette memory (for 4bpp backgrounds)
-#define BG_PALETTE ((volatile unsigned short*)0x5000000)
-
-// Packs 2 pixels (4bpp) per byte inside VRAM words; easiest is to write as u32 rows.
-// Each 4bpp 8x8 tile is 32 bytes = 8 u32 "rows" (each row is 8 pixels = 4 bytes).
+// Packs 2 pixels (4bpp) per byte inside VRAM words.
+// Each 4bpp 8x8 tile is 32 bytes = 8 u32 rows.
 static inline volatile unsigned int* tilePtr(int charblock, int tileIndex) {
     return (volatile unsigned int*)((unsigned char*)CHARBLOCK_BASE
         + CHARBLOCK_OFFSET(charblock)
@@ -2331,30 +2328,35 @@ static int gFontCharblock = 0;
 static int gFontTileBase = 0;
 
 // Convert ONE 6x8 glyph from fontdata into an 8x8 4bpp tile.
-// - We place the 6 columns in x=0..5, and leave x=6..7 as transparent (palette index 0).
-// - We use palette index 1 for “on” pixels (white text by default).
+// - We place the 6 columns in x = 0..5
+// - x = 6..7 stays 0
+// - palette index 1 is the visible text color
 static void buildGlyphTile(unsigned char outTile32Bytes[32], unsigned char ch) {
-    // Clear tile to 0 (transparent/background).
-    for (int i = 0; i < 32; i++) outTile32Bytes[i] = 0;
+    // Clear entire tile to palette index 0.
+    for (int i = 0; i < 32; i++) {
+        outTile32Bytes[i] = 0;
+    }
 
-    // Each character uses 48 bytes: 8 rows * 6 cols.
+    // Each character uses 48 bytes: 8 rows * 6 columns.
     const int base = ((int)ch) * 48;
 
     for (int y = 0; y < 8; y++) {
-        // Each row has 6 pixels.
         for (int x = 0; x < 6; x++) {
-            unsigned char pix = fontdata[base + (y * 6) + x]; // 0 or 1
-            unsigned char val = pix ? 1 : 0;                  // palette index (1 = text)
+            unsigned char pix = fontdata[base + (y * 6) + x];
+            unsigned char val = pix ? 1 : 0;  // 1 = text pixel, 0 = background
 
-            // Write pixel (x,y) into a 4bpp tile.
-            // In 4bpp tile memory: each byte holds 2 pixels: low nibble = even x, high nibble = odd x.
-            int byteIndex = (y * 4) + (x / 2); // 4 bytes per row in 4bpp
+            // In a 4bpp tile, each byte stores 2 pixels:
+            // low nibble = even x, high nibble = odd x
+            int byteIndex = (y * 4) + (x / 2);
+
             if ((x & 1) == 0) {
                 // even x -> low nibble
-                outTile32Bytes[byteIndex] = (outTile32Bytes[byteIndex] & 0xF0) | (val & 0x0F);
+                outTile32Bytes[byteIndex] =
+                    (outTile32Bytes[byteIndex] & 0xF0) | (val & 0x0F);
             } else {
                 // odd x -> high nibble
-                outTile32Bytes[byteIndex] = (outTile32Bytes[byteIndex] & 0x0F) | ((val & 0x0F) << 4);
+                outTile32Bytes[byteIndex] =
+                    (outTile32Bytes[byteIndex] & 0x0F) | ((val & 0x0F) << 4);
             }
         }
     }
@@ -2364,54 +2366,57 @@ void fontInit(int charblock, int tileBase) {
     gFontCharblock = charblock;
     gFontTileBase = tileBase;
 
-    // Set up a super simple palette:
-    // index 0 = transparent/background (black)
-    // index 1 = white text
-    // (You can change these later to match your art.)
-    BG_PALETTE[0] = 0x0000; // RGB15(0,0,0)
-    BG_PALETTE[1] = 0x7FFF; // RGB15(31,31,31)
-
     // Build and upload 256 character tiles.
-    // IMPORTANT: This writes 256 tiles starting at tileBase into the chosen charblock.
-    // Make sure that range does not overlap your background tiles.
+    // IMPORTANT: This writes 256 tiles starting at tileBase.
+    // Make sure this range does not overlap your other BG tiles.
     for (int c = 0; c < 256; c++) {
         unsigned char tmp[32];
         buildGlyphTile(tmp, (unsigned char)c);
 
-        // Copy 32 bytes into VRAM tile memory.
         volatile unsigned int* dst = tilePtr(charblock, tileBase + c);
-
-        // tmp is bytes; write as 8 u32 rows for easy aligned copy.
         const unsigned int* src32 = (const unsigned int*)tmp;
+
         for (int i = 0; i < 8; i++) {
             dst[i] = src32[i];
         }
     }
+
+    // Put the visible font color into palette index 1 of FONT_PALROW.
+    // Palette slot 0 in that row stays 0, which is fine for the "off" pixels.
+    BG_PALETTE[FONT_PALROW * 16 + 1] = FONT_COLOR;
 }
 
 void fontClearMap(int screenblock, unsigned short fillTile) {
     volatile unsigned short* map = (volatile unsigned short*)((unsigned char*)SCREENBLOCK_BASE
         + SCREENBLOCK_OFFSET(screenblock));
 
-    // 32x32 tilemap
+    // Keep the clear tile on the font palette row too.
+    // This is especially useful if fillTile is a blank font tile.
+    unsigned short entry = (fillTile & 0x0FFF) | (FONT_PALROW << 12);
+
     for (int i = 0; i < 32 * 32; i++) {
-        map[i] = fillTile;
+        map[i] = entry;
     }
 }
 
 void fontPutChar(int screenblock, int col, int row, char c) {
-    if (col < 0 || col >= 32 || row < 0 || row >= 32) return;
+    if (col < 0 || col >= 32 || row < 0 || row >= 32) {
+        return;
+    }
 
     volatile unsigned short* map = (volatile unsigned short*)((unsigned char*)SCREENBLOCK_BASE
         + SCREENBLOCK_OFFSET(screenblock));
 
-    // Tile index points at our font tile: tileBase + ASCII code
     unsigned short tileId = (unsigned short)(gFontTileBase + (unsigned char)c);
-    map[row * 32 + col] = tileId;
+
+    // bits 12-15 = BG palette row for 4bpp background tiles
+    map[row * 32 + col] = (tileId & 0x0FFF) | (FONT_PALROW << 12);
 }
 
 void fontDrawString(int screenblock, int col, int row, const char* str) {
-    if (!str) return;
+    if (!str) {
+        return;
+    }
 
     int x = col;
     int y = row;
@@ -2428,11 +2433,14 @@ void fontDrawString(int screenblock, int col, int row, const char* str) {
         fontPutChar(screenblock, x, y, ch);
         x++;
 
-        // simple wrap
+        // Simple wrap
         if (x >= 32) {
             x = col;
             y++;
         }
-        if (y >= 32) break;
+
+        if (y >= 32) {
+            break;
+        }
     }
 }

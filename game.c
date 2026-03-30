@@ -1,4 +1,6 @@
 #include "game.h"
+#include "tileset.h"
+#include "spriteSheet.h"
 
 static GameState state;
 static GameState gameplayStateBeforePause;
@@ -23,246 +25,123 @@ static int respawnX;
 static int respawnY;
 static int loseReturnLevel;
 
+
+// --------------------------------------------------
+// FORWARD DECLARATIONS
+// --------------------------------------------------
 static void initGraphics(void);
-static void initBgTiles(void);
-static void initObjTiles(void);
+static void initBgAssets(void);
+static void initObjAssets(void);
+static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheetWidthTiles,
+    int srcTileX, int srcTileY, int blockWidthTiles, int blockHeightTiles, int dstTileIndex);
 static void drawHudText(void);
 static void drawMenuScreen(const char* title, const char* line1, const char* line2, const char* line3);
 static void drawPauseScreen(void);
 static void goToStart(void);
 static void goToInstructions(void);
 static void goToHome(int respawn);
-static void goToSky(int respawn);
+static void goToLevelOne(int respawn);
+static void goToLevelTwo(int respawn);
+static void goToPause(void);
 static void goToWin(void);
 static void goToLose(int levelToReturnTo);
 static void respawnIntoCurrentLevel(void);
 static void updateStart(void);
 static void updateInstructions(void);
 static void updateHome(void);
-static void updateSky(void);
+static void updateLevelOne(void);
+static void updateLevelTwo(void);
 static void updatePause(void);
 static void updateLose(void);
 static void updateWin(void);
+
 static void updateGameplayCommon(void);
 static void updatePlayerMovement(void);
 static void updateCamera(void);
-static void updateBee(void);
-static void tryDeposit(void);
 static void drawGameplay(void);
 static void drawSprites(void);
 static void hideSprite(int index);
+
+// Collision / interaction helpers
 static int canMoveTo(int newX, int newY);
-static int onLadder(void);
+static int onClimbTile(void);
 static int touchesHazard(void);
-static void applySkyPalettePulse(void);
+static void handleLevelTransitions(void);
+
 static void putText(int col, int row, const char* str);
 static void clearHud(void);
 
-static void writeTile4bpp(volatile u32* dst, const u8 pixels[64]) {
-    int i;
-    for (i = 0; i < 8; i++) {
-        dst[i] =
-            (pixels[i * 8 + 0] << 0) |
-            (pixels[i * 8 + 1] << 4) |
-            (pixels[i * 8 + 2] << 8) |
-            (pixels[i * 8 + 3] << 12) |
-            (pixels[i * 8 + 4] << 16) |
-            (pixels[i * 8 + 5] << 20) |
-            (pixels[i * 8 + 6] << 24) |
-            (pixels[i * 8 + 7] << 28);
-    }
-}
+// --------------------------------------------------
+// Copy a rectangular block of 8x8 OBJ tiles out of the full exported
+// sprite sheet and repack it into a contiguous chunk in OBJ VRAM.
+//
+// Why this matters:
+// In 1D OBJ mapping, every hardware sprite expects its tiles to be laid
+// out contiguously in OBJ memory. A large exported sheet does not store
+// animation frames that way, so we manually repack each player piece.
+// --------------------------------------------------
+static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheetWidthTiles,
+    int srcTileX, int srcTileY, int blockWidthTiles, int blockHeightTiles, int dstTileIndex) {
 
-static void makeSolidTile(int charblock, int tileIndex, u8 color) {
-    u8 pixels[64];
-    int i;
-    for (i = 0; i < 64; i++) pixels[i] = color;
-    writeTile4bpp((volatile u32*)&CHARBLOCK[charblock].tileimg[tileIndex * 16], pixels);
-}
+    volatile unsigned short* objTiles = (volatile unsigned short*)0x6010000;
 
-static void makeGrassTile(void) {
-    u8 pixels[64];
-    int x;
-    int y;
+    for (int tileRow = 0; tileRow < blockHeightTiles; tileRow++) {
+        for (int tileCol = 0; tileCol < blockWidthTiles; tileCol++) {
+            int srcIndex = ((srcTileY + tileRow) * sheetWidthTiles) + (srcTileX + tileCol);
+            int dstIndex = dstTileIndex + (tileRow * blockWidthTiles) + tileCol;
 
-    for (y = 0; y < 8; y++) {
-        for (x = 0; x < 8; x++) {
-            if (y < 2) pixels[y * 8 + x] = 4;
-            else pixels[y * 8 + x] = 5;
-        }
-    }
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_GRASS * 16], pixels);
-}
-
-static void makePlatformTile(void) {
-    u8 pixels[64];
-    int x;
-    int y;
-
-    for (y = 0; y < 8; y++) {
-        for (x = 0; x < 8; x++) {
-            pixels[y * 8 + x] = (y < 2) ? 3 : 4;
-        }
-    }
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_PLATFORM * 16], pixels);
-}
-
-static void makeLadderTile(void) {
-    u8 pixels[64];
-    int x;
-    int y;
-
-    for (int i = 0; i < 64; i++) pixels[i] = 2;
-    for (y = 0; y < 8; y++) {
-        pixels[y * 8 + 2] = 9;
-        pixels[y * 8 + 5] = 9;
-    }
-    for (x = 1; x <= 6; x++) {
-        pixels[2 * 8 + x] = 9;
-        pixels[5 * 8 + x] = 9;
-    }
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_LADDER * 16], pixels);
-}
-
-static void makeHazardTile(void) {
-    u8 pixels[64];
-    int x;
-    int y;
-
-    for (int i = 0; i < 64; i++) pixels[i] = 2;
-    for (x = 1; x < 7; x++) {
-        pixels[6 * 8 + x] = 6;
-        if (x > 1 && x < 6) pixels[4 * 8 + x] = 6;
-    }
-    for (y = 3; y < 7; y++) {
-        pixels[y * 8 + 2] = 6;
-        pixels[y * 8 + 5] = 6;
-    }
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_HAZARD * 16], pixels);
-}
-
-static void makeSoilTile(void) {
-    u8 pixels[64];
-    int x;
-    int y;
-
-    for (y = 0; y < 8; y++) {
-        for (x = 0; x < 8; x++) {
-            pixels[y * 8 + x] = (y < 2) ? 8 : 5;
-        }
-    }
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_SOIL * 16], pixels);
-}
-
-static void makeBeanstalkTile(void) {
-    u8 pixels[64];
-    int y;
-
-    for (int i = 0; i < 64; i++) pixels[i] = 2;
-    for (y = 0; y < 8; y++) {
-        pixels[y * 8 + 3] = 7;
-        pixels[y * 8 + 4] = 7;
-    }
-    pixels[1 * 8 + 5] = 4;
-    pixels[3 * 8 + 2] = 4;
-    pixels[5 * 8 + 5] = 4;
-    pixels[7 * 8 + 2] = 4;
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_BEANSTALK * 16], pixels);
-}
-
-static void makePortalTile(void) {
-    u8 pixels[64];
-    int x;
-    int y;
-
-    for (int i = 0; i < 64; i++) pixels[i] = 2;
-    for (y = 1; y < 7; y++) {
-        for (x = 2; x < 6; x++) {
-            pixels[y * 8 + x] = (x == 2 || x == 5 || y == 1 || y == 6) ? 9 : 3;
-        }
-    }
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_PORTAL * 16], pixels);
-}
-
-static void makeSignTile(void) {
-    u8 pixels[64];
-    int x;
-    int y;
-
-    for (int i = 0; i < 64; i++) pixels[i] = 2;
-    for (y = 1; y < 4; y++) {
-        for (x = 1; x < 7; x++) pixels[y * 8 + x] = 8;
-    }
-    for (y = 4; y < 8; y++) pixels[y * 8 + 3] = 9;
-
-    writeTile4bpp((volatile u32*)&CHARBLOCK[GAME_CHARBLOCK].tileimg[TILE_SIGN * 16], pixels);
-}
-
-static void buildPlayerFrame(int baseTile, int accentColor) {
-    u8 pixels[64];
-    int x;
-    int y;
-    int tile;
-    int tx;
-    int ty;
-
-    for (tile = 0; tile < 4; tile++) {
-        for (int i = 0; i < 64; i++) pixels[i] = 0;
-
-        tx = (tile % 2) * 8;
-        ty = (tile / 2) * 8;
-
-        for (y = 0; y < 8; y++) {
-            for (x = 0; x < 8; x++) {
-                int worldX = tx + x;
-                int worldY = ty + y;
-                if (worldX >= 4 && worldX <= 11 && worldY >= 2 && worldY <= 13) pixels[y * 8 + x] = 8;
-                if (worldX >= 5 && worldX <= 10 && worldY >= 5 && worldY <= 13) pixels[y * 8 + x] = accentColor;
-                if (worldX >= 6 && worldX <= 9 && worldY <= 3) pixels[y * 8 + x] = 3;
+            // Each 4bpp tile is 32 bytes = 16 unsigned shorts.
+            for (int i = 0; i < 16; i++) {
+                objTiles[dstIndex * 16 + i] = sheetTiles[srcIndex * 16 + i];
             }
         }
-
-        writeTile4bpp((volatile u32*)((u16*)0x6010000 + (baseTile + tile) * 16), pixels);
     }
 }
 
-static void buildSmallSpriteTile(int tileIndex, u8 mainColor, u8 accentColor) {
-    u8 pixels[64];
-    int x;
-    int y;
+static void initBgAssets(void) {
+    // Load the tileset palette and tiles for the gameplay backgrounds.
+    DMANow(3, (void*)tilesetPal, BG_PALETTE, tilesetPalLen / 2);
+    DMANow(3, (void*)tilesetTiles, CHARBLOCK[1].tileimg, tilesetTilesLen / 2);
 
-    for (int i = 0; i < 64; i++) pixels[i] = 0;
-    for (y = 2; y < 6; y++) {
-        for (x = 2; x < 6; x++) pixels[y * 8 + x] = mainColor;
-    }
-    pixels[1 * 8 + 3] = accentColor;
-    pixels[1 * 8 + 4] = accentColor;
-    pixels[6 * 8 + 3] = accentColor;
-    pixels[6 * 8 + 4] = accentColor;
+    // Palette index 0 is the global BG backdrop color.
+    // Because your tilemaps now use index 0 as transparent, this is the sky
+    // color that will show through anywhere index 0 appears.
+    BG_PALETTE[0] = SKY_COLOR;
 
-    writeTile4bpp((volatile u32*)((u16*)0x6010000 + tileIndex * 16), pixels);
+    // Give the HUD/menu font its own dedicated palette row so the text does
+    // not inherit random colors from the tileset palette.
+    BG_PALETTE[FONT_PALROW * 16 + 0] = SKY_COLOR;
+    BG_PALETTE[FONT_PALROW * 16 + 1] = FONT_COLOR;
+}
+
+static void initObjAssets(void) {
+    DMANow(3, (void*)spriteSheetPal, SPRITE_PAL, spriteSheetPalLen / 2);
+
+    // Clear enough OBJ tile memory that stale sprite art does not show up.
+    static unsigned short zero = 0;
+    DMANow(3, &zero, (volatile unsigned short*)0x6010000, (32 * 32) | DMA_SOURCE_FIXED);
+
+    // The player now occupies one clean 2x4 tile block at the top-left of the
+    // sprite sheet, so repack that 16x32 block directly into OBJ tile slot 0.
+    copySpriteBlockFromSheet(spriteSheetTiles, 32, 0, 0, 2, 4, OBJ_TILE_PLAYER);
 }
 
 void initGame(void) {
     initGraphics();
-    initLevelData();
-
-    loadHomeLevelMap();
-    setBackgroundOffset(0, 0, 0);
-    setBackgroundOffset(1, 0, 0);
-    setBackgroundOffset(2, 0, 0);
 
     frameCounter = 0;
     carryingResource = 0;
     beanstalkGrown = 0;
     instantGrowCheat = 0;
+
+    currentLevel = LEVEL_HOME;
+    levelWidth = getLevelPixelWidth(currentLevel);
+    levelHeight = getLevelPixelHeight(currentLevel);
+
+    loadLevelMaps(currentLevel);
+    setBackgroundOffset(0, 0, 0);
+    setBackgroundOffset(1, 0, 0);
+    setBackgroundOffset(2, 0, 0);
 
     goToStart();
 }
@@ -280,8 +159,11 @@ void updateGame(void) {
         case STATE_HOME:
             updateHome();
             break;
-        case STATE_SKY:
-            updateSky();
+        case STATE_LEVEL1:
+            updateLevelOne();
+            break;
+        case STATE_LEVEL2:
+            updateLevelTwo();
             break;
         case STATE_PAUSE:
             updatePause();
@@ -299,26 +181,29 @@ void drawGame(void) {
     switch (state) {
         case STATE_START:
             clearHud();
-            loadHomeLevelMap();
+            configureMapBackgroundsForLevel(LEVEL_HOME);
+            loadLevelMaps(LEVEL_HOME);
             setBackgroundOffset(0, 0, 0);
             setBackgroundOffset(1, 0, 0);
             setBackgroundOffset(2, 0, 0);
-            drawMenuScreen("BEYOND THE SKY", "PRESS START", "A: NEXT   B: BACK", "SELECT+UP TOGGLE GROW CHEAT");
+            drawMenuScreen("BEYOND THE SKY", "PRESS START", "A: NEXT   B: BACK", "SELECT+LEFT/RIGHT/DOWN = MAP CHEATS");
             hideSprites();
             break;
 
         case STATE_INSTRUCTIONS:
             clearHud();
-            loadHomeLevelMap();
+            configureMapBackgroundsForLevel(LEVEL_HOME);
+            loadLevelMaps(LEVEL_HOME);
             setBackgroundOffset(0, 0, 0);
             setBackgroundOffset(1, 0, 0);
             setBackgroundOffset(2, 0, 0);
-            drawMenuScreen("INSTRUCTIONS", "LEFT/RIGHT MOVE  A JUMP", "UP/DOWN CLIMB  START PAUSE", "GET WATER IN SKY LEVEL, RETURN, PRESS B ON SOIL");
+            drawMenuScreen("INSTRUCTIONS", "ARROWS MOVE", "A JUMP  START PAUSE", "SELECT+LEFT/RIGHT/DOWN TO WARP MAPS");
             hideSprites();
             break;
 
         case STATE_HOME:
-        case STATE_SKY:
+        case STATE_LEVEL1:
+        case STATE_LEVEL2:
             drawGameplay();
             break;
 
@@ -328,95 +213,41 @@ void drawGame(void) {
 
         case STATE_WIN:
             clearHud();
-            loadHomeLevelMap();
-            setBackgroundOffset(0, 0, 0);
-            setBackgroundOffset(1, 0, 0);
-            setBackgroundOffset(2, 0, 0);
-            drawMenuScreen("YOU WIN", "THE BEANSTALK BLOOMED", "PRESS START TO PLAY AGAIN",
-                instantGrowCheat ? "CHEAT MODE WAS ON" : "CHEAT MODE WAS OFF");
+            drawMenuScreen("YOU WIN", "PRESS START TO PLAY AGAIN", "", "");
             hideSprites();
             break;
 
         case STATE_LOSE:
             clearHud();
-            loadHomeLevelMap();
-            setBackgroundOffset(0, 0, 0);
-            setBackgroundOffset(1, 0, 0);
-            setBackgroundOffset(2, 0, 0);
-            drawMenuScreen("YOU WILTED", "HAZARD HIT OR FALL RESET", "PRESS START TO RESPAWN",
-                "THIS STILL COUNTS AS YOUR RESET/KILL OBSTACLE");
+            drawMenuScreen("YOU LOSE", "PRESS START TO RESPAWN", "", "");
             hideSprites();
             break;
     }
-
-    DMANow(3, shadowOAM, OAM, 128 * 4);
 }
 
 static void initGraphics(void) {
     initMode0();
 
-    REG_DISPCTL = MODE(0) | BG_ENABLE(0) | BG_ENABLE(1) | BG_ENABLE(2) | SPRITE_ENABLE | SPRITE_MODE_1D;
+    REG_DISPCTL = MODE(0) | BG_ENABLE(0) | BG_ENABLE(1) | BG_ENABLE(2)
+        | SPRITE_ENABLE | SPRITE_MODE_1D;
 
-    setupBackground(0, BG_PRIORITY(0) | BG_CHARBLOCK(HUD_CHARBLOCK) | BG_SCREENBLOCK(HUD_SCREENBLOCK) | BG_4BPP | BG_SIZE_SMALL);
-    setupBackground(1, BG_PRIORITY(1) | BG_CHARBLOCK(GAME_CHARBLOCK) | BG_SCREENBLOCK(GAME_SCREENBLOCK) | BG_4BPP | BG_SIZE_WIDE);
-    setupBackground(2, BG_PRIORITY(2) | BG_CHARBLOCK(GAME_CHARBLOCK) | BG_SCREENBLOCK(CLOUD_SCREENBLOCK) | BG_4BPP | BG_SIZE_WIDE);
+    // BG0 = HUD text layer
+    setupBackground(0, BG_PRIORITY(0) | BG_CHARBLOCK(0) | BG_SCREENBLOCK(HUD_SCREENBLOCK) | BG_4BPP | BG_SIZE_SMALL);
+
+    // BG1/BG2 shape gets configured per-level in levels.c
+    configureMapBackgroundsForLevel(LEVEL_HOME);
 
     hideSprites();
-    clearCharBlock(HUD_CHARBLOCK);
-    clearCharBlock(GAME_CHARBLOCK);
+    clearCharBlock(0);
     clearScreenblock(HUD_SCREENBLOCK);
-    clearScreenblock(GAME_SCREENBLOCK);
-    clearScreenblock(GAME_SCREENBLOCK + 1);
-    clearScreenblock(CLOUD_SCREENBLOCK);
-    clearScreenblock(CLOUD_SCREENBLOCK + 1);
+    clearScreenblock(BG_BACK_SB_A);
+    clearScreenblock(BG_BACK_SB_B);
+    clearScreenblock(BG_FRONT_SB_A);
+    clearScreenblock(BG_FRONT_SB_B);
 
-    fontInit(HUD_CHARBLOCK, 0);
-    initBgTiles();
-    initObjTiles();
-}
-
-static void initBgTiles(void) {
-    BG_PALETTE[0] = RGB(0, 0, 0);
-    BG_PALETTE[1] = RGB(0, 0, 0);
-    BG_PALETTE[2] = RGB(15, 24, 31);
-    BG_PALETTE[3] = RGB(31, 31, 31);
-    BG_PALETTE[4] = RGB(15, 28, 8);
-    BG_PALETTE[5] = RGB(19, 11, 5);
-    BG_PALETTE[6] = RGB(31, 7, 7);
-    BG_PALETTE[7] = RGB(7, 24, 7);
-    BG_PALETTE[8] = RGB(28, 23, 14);
-    BG_PALETTE[9] = RGB(31, 25, 6);
-
-    makeSolidTile(GAME_CHARBLOCK, TILE_SKY, 2);
-    makeSolidTile(GAME_CHARBLOCK, TILE_CLOUD, 3);
-    makeGrassTile();
-    makeSolidTile(GAME_CHARBLOCK, TILE_DIRT, 5);
-    makePlatformTile();
-    makeLadderTile();
-    makeHazardTile();
-    makeSoilTile();
-    makeBeanstalkTile();
-    makePortalTile();
-    makeSignTile();
-}
-
-static void initObjTiles(void) {
-    SPRITE_PAL[0] = RGB(0, 0, 0);
-    SPRITE_PAL[1] = RGB(31, 31, 31);
-    SPRITE_PAL[2] = RGB(15, 24, 31);
-    SPRITE_PAL[3] = RGB(28, 23, 14);
-    SPRITE_PAL[4] = RGB(15, 28, 8);
-    SPRITE_PAL[5] = RGB(31, 7, 7);
-    SPRITE_PAL[6] = RGB(29, 14, 29);
-    SPRITE_PAL[7] = RGB(5, 18, 6);
-    SPRITE_PAL[8] = RGB(22, 13, 6);
-    SPRITE_PAL[9] = RGB(31, 25, 6);
-
-    buildPlayerFrame(OBJ_TILE_PLAYER0, 4);
-    buildPlayerFrame(OBJ_TILE_PLAYER1, 9);
-    buildSmallSpriteTile(OBJ_TILE_ITEM, 9, 3);
-    buildSmallSpriteTile(OBJ_TILE_BEE0, 9, 1);
-    buildSmallSpriteTile(OBJ_TILE_BEE1, 5, 1);
+    fontInit(0, 0);
+    initBgAssets();
+    initObjAssets();
 }
 
 static void goToStart(void) {
@@ -436,16 +267,18 @@ static void goToInstructions(void) {
 static void goToHome(int respawn) {
     state = STATE_HOME;
     currentLevel = LEVEL_HOME;
-    levelWidth = HOME_PIXEL_W;
-    levelHeight = HOME_PIXEL_H;
-    cloudHOff = 0;
+    levelWidth = getLevelPixelWidth(currentLevel);
+    levelHeight = getLevelPixelHeight(currentLevel);
 
-    loadHomeLevelMap();
+    configureMapBackgroundsForLevel(currentLevel);
+    loadLevelMaps(currentLevel);
     clearHud();
 
     if (!respawn) {
-        player.x = 24;
-        player.y = 120;
+        // Spawn near the bottom-left of the map.
+        // Ground is 3 tiles tall = 24 pixels.
+        player.x = 0;
+        player.y = levelHeight - 24 - PLAYER_HEIGHT;
     } else {
         player.x = respawnX;
         player.y = respawnY;
@@ -457,30 +290,37 @@ static void goToHome(int respawn) {
     player.yVel = 0;
     player.grounded = 0;
     player.climbing = 0;
+    player.facingLeft = 0;
+    player.animFrame = 0;
+    player.animCounter = 0;
+    player.oldX = player.x;
+    player.oldY = player.y;
 
-    respawnX = 24;
-    respawnY = 120;
+    respawnX = player.x;
+    respawnY = player.y;
 
-    resource.active = 0;
-    bee.active = 0;
-
+    // Start camera at bottom-left of the world.
     hOff = 0;
-    vOff = 0;
+    vOff = levelHeight - SCREENHEIGHT;
+    if (vOff < 0) vOff = 0;
+
+    setBackgroundOffset(1, hOff, vOff);
+    setBackgroundOffset(2, hOff, vOff);
 }
 
-static void goToSky(int respawn) {
-    state = STATE_SKY;
-    currentLevel = LEVEL_SKY;
-    levelWidth = SKY_PIXEL_W;
-    levelHeight = SKY_PIXEL_H;
-    cloudHOff = 0;
+static void goToLevelOne(int respawn) {
+    state = STATE_LEVEL1;
+    currentLevel = LEVEL_ONE;
+    levelWidth = getLevelPixelWidth(currentLevel);
+    levelHeight = getLevelPixelHeight(currentLevel);
 
-    loadSkyLevelMap();
+    configureMapBackgroundsForLevel(currentLevel);
+    loadLevelMaps(currentLevel);
     clearHud();
 
     if (!respawn) {
-        player.x = 20;
-        player.y = 200;
+        player.x = 0;
+        player.y = levelHeight - 24 - PLAYER_HEIGHT;
     } else {
         player.x = respawnX;
         player.y = respawnY;
@@ -492,24 +332,62 @@ static void goToSky(int respawn) {
     player.yVel = 0;
     player.grounded = 0;
     player.climbing = 0;
+    player.facingLeft = 0;
+    player.animFrame = 0;
+    player.animCounter = 0;
+    player.oldX = player.x;
+    player.oldY = player.y;
 
-    respawnX = 20;
-    respawnY = 200;
-
-    resource.x = 470;
-    resource.y = 52;
-    resource.active = carryingResource ? 0 : 1;
-    resource.bob = 0;
-
-    bee.x = 360;
-    bee.y = 80;
-    bee.active = 1;
-    bee.animFrame = 0;
-    bee.animCounter = 0;
-    bee.dir = 1;
+    respawnX = player.x;
+    respawnY = player.y;
 
     hOff = 0;
-    vOff = 96;
+    vOff = levelHeight - SCREENHEIGHT;
+    if (vOff < 0) vOff = 0;
+
+    setBackgroundOffset(1, hOff, vOff);
+    setBackgroundOffset(2, hOff, vOff);
+}
+
+static void goToLevelTwo(int respawn) {
+    state = STATE_LEVEL2;
+    currentLevel = LEVEL_TWO;
+    levelWidth = getLevelPixelWidth(currentLevel);
+    levelHeight = getLevelPixelHeight(currentLevel);
+
+    configureMapBackgroundsForLevel(currentLevel);
+    loadLevelMaps(currentLevel);
+    clearHud();
+
+    if (!respawn) {
+        player.x = 0;
+        player.y = levelHeight - 24 - PLAYER_HEIGHT;
+    } else {
+        player.x = respawnX;
+        player.y = respawnY;
+    }
+
+    player.width = PLAYER_WIDTH;
+    player.height = PLAYER_HEIGHT;
+    player.xVel = 0;
+    player.yVel = 0;
+    player.grounded = 0;
+    player.climbing = 0;
+    player.facingLeft = 0;
+    player.animFrame = 0;
+    player.animCounter = 0;
+    player.oldX = player.x;
+    player.oldY = player.y;
+
+    respawnX = player.x;
+    respawnY = player.y;
+
+    hOff = 0;
+    vOff = levelHeight - SCREENHEIGHT;
+    if (vOff < 0) vOff = 0;
+
+    setBackgroundOffset(1, hOff, vOff);
+    setBackgroundOffset(2, hOff, vOff);
 }
 
 static void goToPause(void) {
@@ -534,8 +412,13 @@ static void goToLose(int levelToReturnTo) {
 }
 
 static void respawnIntoCurrentLevel(void) {
-    if (loseReturnLevel == LEVEL_HOME) goToHome(1);
-    else goToSky(1);
+    if (loseReturnLevel == LEVEL_HOME) {
+        goToHome(1);
+    } else if (loseReturnLevel == LEVEL_ONE) {
+        goToLevelOne(1);
+    } else {
+        goToLevelTwo(1);
+    }
 }
 
 static void updateStart(void) {
@@ -555,35 +438,14 @@ static void updateInstructions(void) {
 
 static void updateHome(void) {
     updateGameplayCommon();
-
-    if (BUTTON_PRESSED(BUTTON_UP) && player.x > 456 && player.y > 180) {
-        goToSky(0);
-    }
-
-    if (carryingResource) {
-        tryDeposit();
-    }
-
-    if (beanstalkGrown && player.y < 24 && player.x >= 48 && player.x <= 104) {
-        goToWin();
-    }
 }
 
-static void updateSky(void) {
+static void updateLevelOne(void) {
     updateGameplayCommon();
-    updateBee();
+}
 
-    if (resource.active && collision(player.x, player.y, player.width, player.height,
-        resource.x, resource.y + ((resource.bob >> 3) & 1), ITEM_SIZE, ITEM_SIZE)) {
-        resource.active = 0;
-        carryingResource = 1;
-    }
-
-    resource.bob++;
-
-    if (BUTTON_PRESSED(BUTTON_UP) && player.x < 16) {
-        goToHome(0);
-    }
+static void updateLevelTwo(void) {
+    updateGameplayCommon();
 }
 
 static void updatePause(void) {
@@ -606,25 +468,32 @@ static void updateWin(void) {
     if (BUTTON_PRESSED(BUTTON_START)) {
         carryingResource = 0;
         beanstalkGrown = 0;
-        initLevelData();
         goToStart();
     }
 }
 
 static void updateGameplayCommon(void) {
+    // START pauses the game.
     if (BUTTON_PRESSED(BUTTON_START)) {
         goToPause();
         return;
     }
 
+    // Optional cheat toggle if you still want it.
     if (BUTTON_PRESSED(BUTTON_SELECT) && BUTTON_HELD(BUTTON_UP)) {
         instantGrowCheat = !instantGrowCheat;
     }
 
+    // Move the player using collision-map rules.
     updatePlayerMovement();
-    updateCamera();
-    applySkyPalettePulse();
 
+    // Check transition tiles after movement.
+    handleLevelTransitions();
+
+    // Update camera after movement / transitions.
+    updateCamera();
+
+    // Hazard check.
     if (touchesHazard() || player.y > levelHeight + 16) {
         goToLose(currentLevel);
     }
@@ -633,120 +502,174 @@ static void updateGameplayCommon(void) {
 static void updatePlayerMovement(void) {
     int nextX;
     int nextY;
+    int allowVerticalMovement;
 
     player.oldX = player.x;
     player.oldY = player.y;
 
-    player.climbing = onLadder();
+    nextX = player.x;
+    nextY = player.y;
 
+    // --------------------------------------------------
+    // Horizontal movement
+    // --------------------------------------------------
     if (BUTTON_HELD(BUTTON_LEFT)) {
-        nextX = player.x - MOVE_SPEED;
-        if (canMoveTo(nextX, player.y)) player.x = nextX;
+        nextX -= MOVE_SPEED;
         player.facingLeft = 1;
-        player.animCounter++;
     }
 
     if (BUTTON_HELD(BUTTON_RIGHT)) {
-        nextX = player.x + MOVE_SPEED;
-        if (canMoveTo(nextX, player.y)) player.x = nextX;
+        nextX += MOVE_SPEED;
         player.facingLeft = 0;
-        player.animCounter++;
     }
 
-    if (player.climbing) {
-        player.yVel = 0;
-        if (BUTTON_HELD(BUTTON_UP)) player.y -= CLIMB_SPEED;
-        if (BUTTON_HELD(BUTTON_DOWN)) player.y += CLIMB_SPEED;
-    } else {
-        if (BUTTON_PRESSED(BUTTON_A) && player.grounded) {
-            player.yVel = JUMP_VEL;
-            player.grounded = 0;
-        }
+    // --------------------------------------------------
+    // Vertical movement only on climb tiles
+    // --------------------------------------------------
+    allowVerticalMovement = onClimbTile();
 
-        player.yVel += GRAVITY;
-        if (player.yVel > MAX_FALL_SPEED) player.yVel = MAX_FALL_SPEED;
+    if (BUTTON_HELD(BUTTON_UP)) {
+        int testCenterX = player.x + (player.width / 2);
+        int testY = player.y - MOVE_SPEED + (player.height / 2);
 
-        nextY = player.y + player.yVel;
-        if (canMoveTo(player.x, nextY)) {
-            player.y = nextY;
-            player.grounded = 0;
-        } else {
-            if (player.yVel > 0) {
-                while (!canMoveTo(player.x, player.y + 1)) player.y--;
-                player.grounded = 1;
-            }
-            player.yVel = 0;
+        if (allowVerticalMovement || isClimbPixel(currentLevel, testCenterX, testY)) {
+            nextY -= MOVE_SPEED;
+            player.climbing = 1;
         }
     }
 
-    if (frameCounter % 12 == 0) {
-        player.animFrame ^= 1;
+    if (BUTTON_HELD(BUTTON_DOWN)) {
+        int testCenterX = player.x + (player.width / 2);
+        int testY = player.y + MOVE_SPEED + (player.height / 2);
+
+        if (allowVerticalMovement || isClimbPixel(currentLevel, testCenterX, testY)) {
+            nextY += MOVE_SPEED;
+            player.climbing = 1;
+        }
+    }
+
+    if (!BUTTON_HELD(BUTTON_UP) && !BUTTON_HELD(BUTTON_DOWN)) {
+        player.climbing = 0;
+    }
+
+    // --------------------------------------------------
+    // Clamp to map bounds
+    // --------------------------------------------------
+    if (nextX < 0) nextX = 0;
+    if (nextY < 0) nextY = 0;
+    if (nextX > levelWidth - player.width) nextX = levelWidth - player.width;
+    if (nextY > levelHeight - player.height) nextY = levelHeight - player.height;
+
+    // --------------------------------------------------
+    // Resolve movement axis-by-axis
+    // --------------------------------------------------
+    if (canMoveTo(nextX, player.y)) {
+        player.x = nextX;
+    }
+
+    if (canMoveTo(player.x, nextY)) {
+        player.y = nextY;
     }
 }
 
 static void updateCamera(void) {
-    hOff = player.x - (SCREENWIDTH / 2) + (player.width / 2);
-    vOff = player.y - (SCREENHEIGHT / 2) + (player.height / 2);
+    hOff = player.x + (player.width / 2) - (SCREENWIDTH / 2);
+    vOff = player.y + (player.height / 2) - (SCREENHEIGHT / 2);
 
-    if (hOff < 0) hOff = 0;
-    if (vOff < 0) vOff = 0;
-    if (hOff > levelWidth - SCREENWIDTH) hOff = levelWidth - SCREENWIDTH;
-    if (vOff > levelHeight - SCREENHEIGHT) vOff = levelHeight - SCREENHEIGHT;
-
-    cloudHOff = hOff / 3 + frameCounter / 6;
-}
-
-static void updateBee(void) {
-    if (!bee.active) return;
-
-    bee.animCounter++;
-    if (bee.animCounter >= 12) {
-        bee.animCounter = 0;
-        bee.animFrame ^= 1;
+    if (hOff < 0) {
+        hOff = 0;
+    }
+    if (vOff < 0) {
+        vOff = 0;
+    }
+    if (hOff > levelWidth - SCREENWIDTH) {
+        hOff = levelWidth - SCREENWIDTH;
+    }
+    if (vOff > levelHeight - SCREENHEIGHT) {
+        vOff = levelHeight - SCREENHEIGHT;
     }
 
-    bee.x += bee.dir;
-    if (bee.x < 340) bee.dir = 1;
-    if (bee.x > 410) bee.dir = -1;
-}
-
-static void tryDeposit(void) {
-    int footX = player.x + player.width / 2;
-    int footY = player.y + player.height + 1;
-
-    if (isSoilPixel(currentLevel, footX, footY) && BUTTON_PRESSED(BUTTON_B)) {
-        carryingResource = 0;
-        beanstalkGrown = 1;
-        if (instantGrowCheat || beanstalkGrown) {
-            growHomeBeanstalk();
-            loadHomeLevelMap();
-        }
+    if (levelWidth < SCREENWIDTH) {
+        hOff = 0;
     }
+    if (levelHeight < SCREENHEIGHT) {
+        vOff = 0;
+    }
+
+    cloudHOff = hOff / 3;
 }
 
 static int canMoveTo(int newX, int newY) {
-    return !isSolidPixel(currentLevel, newX, newY)
-        && !isSolidPixel(currentLevel, newX + player.width - 1, newY)
-        && !isSolidPixel(currentLevel, newX, newY + player.height - 1)
-        && !isSolidPixel(currentLevel, newX + player.width - 1, newY + player.height - 1);
+    // Check all four corners of the player's hitbox.
+    return !isBlockedPixel(currentLevel, newX, newY)
+        && !isBlockedPixel(currentLevel, newX + player.width - 1, newY)
+        && !isBlockedPixel(currentLevel, newX, newY + player.height - 1)
+        && !isBlockedPixel(currentLevel, newX + player.width - 1, newY + player.height - 1);
 }
 
-static int onLadder(void) {
-    int centerX = player.x + player.width / 2;
-    int centerY = player.y + player.height / 2;
-    return isLadderPixel(currentLevel, centerX, centerY);
+static int onClimbTile(void) {
+    int centerX = player.x + (player.width / 2);
+    int centerY = player.y + (player.height / 2);
+
+    return isClimbPixel(currentLevel, centerX, centerY);
 }
 
 static int touchesHazard(void) {
-    return isHazardPixel(currentLevel, player.x + 2, player.y + player.height)
-        || isHazardPixel(currentLevel, player.x + player.width - 3, player.y + player.height);
+    int leftFootX  = player.x + 2;
+    int rightFootX = player.x + player.width - 3;
+    int footY      = player.y + player.height - 1;
+    int midX       = player.x + (player.width / 2);
+    int midY       = player.y + player.height - 4;
+
+    return isHazardPixel(currentLevel, leftFootX, footY)
+        || isHazardPixel(currentLevel, rightFootX, footY)
+        || isHazardPixel(currentLevel, midX, midY);
 }
 
-static void applySkyPalettePulse(void) {
-    if ((frameCounter / 30) & 1) {
-        BG_PALETTE[2] = RGB(15, 24, 31);
-    } else {
-        BG_PALETTE[2] = RGB(18, 26, 31);
+static void handleLevelTransitions(void) {
+    // Sample the center-bottom of the player.
+    // This works well for doorway / portal / transition tiles.
+    int probeX = player.x + (player.width / 2);
+    int probeY = player.y + player.height - 1;
+
+    // --------------------------------------------------
+    // HOME -> LEVEL ONE
+    // Only trigger if we are currently in HOME and we
+    // touch collision index 4.
+    // --------------------------------------------------
+    if (currentLevel == LEVEL_HOME && isHomeToLevel1Pixel(currentLevel, probeX, probeY)) {
+        goToLevelOne(0);
+        return;
+    }
+
+    // --------------------------------------------------
+    // LEVEL ONE -> HOME
+    // Only trigger if we are currently in LEVEL ONE and
+    // we touch collision index 5.
+    // --------------------------------------------------
+    if (currentLevel == LEVEL_ONE && isLevel1ToHomePixel(currentLevel, probeX, probeY)) {
+        goToHome(0);
+        return;
+    }
+
+    // --------------------------------------------------
+    // HOME -> LEVEL TWO
+    // Only trigger if we are currently in HOME and we
+    // touch collision index 6.
+    // --------------------------------------------------
+    if (currentLevel == LEVEL_HOME && isHomeToLevel2Pixel(currentLevel, probeX, probeY)) {
+        goToLevelTwo(0);
+        return;
+    }
+
+    // --------------------------------------------------
+    // LEVEL TWO -> HOME
+    // Only trigger if we are currently in LEVEL TWO and
+    // we touch collision index 7.
+    // --------------------------------------------------
+    if (currentLevel == LEVEL_TWO && isLevel2ToHomePixel(currentLevel, probeX, probeY)) {
+        goToHome(0);
+        return;
     }
 }
 
@@ -755,7 +678,7 @@ static void drawGameplay(void) {
     drawHudText();
 
     setBackgroundOffset(1, hOff, vOff);
-    setBackgroundOffset(2, cloudHOff, vOff / 4);
+    setBackgroundOffset(2, hOff, vOff);
 
     drawSprites();
 }
@@ -764,29 +687,34 @@ static void drawSprites(void) {
     int screenX = player.x - hOff;
     int screenY = player.y - vOff;
 
-    shadowOAM[0].attr0 = ATTR0_Y(screenY) | ATTR0_SQUARE | ATTR0_4BPP;
-    shadowOAM[0].attr1 = ATTR1_X(screenX) | ATTR1_SMALL | (player.facingLeft ? ATTR1_HFLIP : 0);
-    shadowOAM[0].attr2 = ATTR2_TILEID(player.animFrame ? OBJ_TILE_PLAYER1 : OBJ_TILE_PLAYER0) | ATTR2_PRIORITY(0);
-
-    if (resource.active && state == STATE_SKY) {
-        shadowOAM[1].attr0 = ATTR0_Y(resource.y - vOff + ((resource.bob >> 3) & 1)) | ATTR0_SQUARE | ATTR0_4BPP;
-        shadowOAM[1].attr1 = ATTR1_X(resource.x - hOff) | ATTR1_TINY;
-        shadowOAM[1].attr2 = ATTR2_TILEID(OBJ_TILE_ITEM) | ATTR2_PRIORITY(0);
+    // The new player is a single 16x32 OBJ. Hide it cleanly if it is fully
+    // offscreen. Also hide the three old helper sprites so stale art from the
+    // previous 24x48 setup never shows up.
+    if (screenX < -player.width || screenX >= SCREENWIDTH ||
+        screenY < -player.height || screenY >= SCREENHEIGHT) {
+        hideSprite(0);
     } else {
-        hideSprite(1);
+        shadowOAM[0].attr0 = ATTR0_Y(screenY) | ATTR0_TALL | ATTR0_4BPP;
+        shadowOAM[0].attr1 = ATTR1_X(screenX) | ATTR1_MEDIUM;
+
+        if (player.facingLeft) {
+            shadowOAM[0].attr1 |= ATTR1_HFLIP;
+        }
+
+        shadowOAM[0].attr2 = ATTR2_TILEID(OBJ_TILE_PLAYER)
+            | ATTR2_PRIORITY(0)
+            | ATTR2_PALROW(PLAYER_PALROW);
     }
 
-    if (bee.active && state == STATE_SKY) {
-        shadowOAM[2].attr0 = ATTR0_Y(bee.y - vOff) | ATTR0_SQUARE | ATTR0_4BPP;
-        shadowOAM[2].attr1 = ATTR1_X(bee.x - hOff) | ATTR1_TINY;
-        shadowOAM[2].attr2 = ATTR2_TILEID(bee.animFrame ? OBJ_TILE_BEE1 : OBJ_TILE_BEE0) | ATTR2_PRIORITY(0);
-    } else {
-        hideSprite(2);
-    }
-
+    // Hide leftover sprite slots from the old multi-piece player.
+    hideSprite(1);
+    hideSprite(2);
     hideSprite(3);
-    hideSprite(4);
-    hideSprite(5);
+
+    // Hide everything else unless you later add more gameplay sprites.
+    for (int i = 4; i < 128; i++) {
+        hideSprite(i);
+    }
 }
 
 static void hideSprite(int index) {
@@ -796,24 +724,23 @@ static void hideSprite(int index) {
 }
 
 static void drawHudText(void) {
-    if (state == STATE_HOME) {
-        putText(1, 1, "HOME");
-        putText(1, 3, carryingResource ? "CARRYING: WATER" : "CARRYING: NONE");
-        putText(1, 5, beanstalkGrown ? "BEANSTALK: GROWN" : "BEANSTALK: SMALL");
-        putText(1, 7, "UP AT PORTAL -> SKY");
-        putText(1, 8, "PRESS B ON SOIL TO DEPOSIT");
+    if (currentLevel == LEVEL_HOME) {
+        putText(1, 1, "HOMEBASE");
+    } else if (currentLevel == LEVEL_ONE) {
+        putText(1, 1, "LEVEL 1");
     } else {
-        putText(1, 1, "SKY LEVEL");
-        putText(1, 3, carryingResource ? "RESOURCE COLLECTED" : "GET THE WATER DROP");
-        putText(1, 5, "UP AT LEFT PORTAL -> HOME");
-        putText(1, 7, "LADDER + HAZARDS ACTIVE");
+        putText(1, 1, "LEVEL 2");
     }
 
-    putText(1, 10, instantGrowCheat ? "CHEAT: INSTANT GROW ON" : "CHEAT: OFF");
+    putText(1, 3, "SEL+DOWN  HOME");
+    putText(1, 5, "SEL+LEFT  LV1");
+    putText(1, 7, "SEL+RIGHT LV2");
 }
 
 static void drawMenuScreen(const char* title, const char* line1, const char* line2, const char* line3) {
-    loadHomeLevelMap();
+    // This function should only DRAW the menu screen.
+    // It must never change game state, otherwise the title / instructions
+    // screens constantly stomp each other and input appears broken.
     setBackgroundOffset(1, 0, 0);
     setBackgroundOffset(2, 0, 0);
     putText(6, 5, title);

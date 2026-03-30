@@ -2,6 +2,13 @@
 #define FONT_H
 
 #include <stddef.h>
+#include "gba.h"
+
+// Put font on its own BG palette row
+#define FONT_PALROW 15
+
+// Visible font color inside that palette row
+#define FONT_COLOR RGB(0, 0, 0)
 
 // The array of character data (256 chars * 6 * 8 = 12288)
 extern const unsigned char fontdata[12288]; // :contentReference[oaicite:1]{index=1}
