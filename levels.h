@@ -85,6 +85,7 @@ int isBlockedPixel(int level, int x, int y);
 int isHazardPixel(int level, int x, int y);
 int isClimbPixel(int level, int x, int y);
 
+// Transition tile checks
 int isHomeToLevel1Pixel(int level, int x, int y);
 int isLevel1ToHomePixel(int level, int x, int y);
 int isHomeToLevel2Pixel(int level, int x, int y);

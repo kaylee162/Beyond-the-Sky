@@ -171,6 +171,12 @@ int isClimbPixel(int level, int x, int y) {
     return collisionAtPixel(level, x, y) == COL_CLIMB;
 }
 
+// ------------------------------------------------------
+// Transition tile helpers
+// These return true when the sampled pixel matches the
+// correct palette index in the collision map.
+// ------------------------------------------------------
+
 int isHomeToLevel1Pixel(int level, int x, int y) {
     return collisionAtPixel(level, x, y) == COL_HOME_TO_LEVEL1;
 }

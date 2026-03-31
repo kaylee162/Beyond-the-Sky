@@ -61,14 +61,65 @@
 #define PLAYER_WIDTH        16
 #define PLAYER_HEIGHT       32
 
-// Start tile for the player in OBJ tile memory.
-// This assumes you copy the player's 2x4 tile art into OBJ tile slot 0.
-#define OBJ_TILE_PLAYER     0
+// ------------------------------------------------------
+// Player animation layout in OBJ memory
+//
+// Each player frame is 2 tiles wide x 4 tiles tall = 8 tiles total.
+// We copy each frame into contiguous OBJ tile memory so 1D sprite mode
+// can draw it correctly as one 16x32 sprite.
+//
+// Row 0 on sheet: right  animations
+// Row 1 on sheet: left   animations
+// Row 2 on sheet: up     animations (climbing up)
+// Row 3 on sheet: down   animations (falling / climbing down)
+//
+// Sheet top-lefts you gave:
+// right row starts at (0, 0)
+// left  row starts at (0, 4)
+// up    row starts at (0, 8)
+// down  row starts at (0, 12)
+//
+// Each frame is 2 tiles wide, so frame starts are:
+// frame 0 = x 0
+// frame 1 = x 2
+// frame 2 = x 4
+// frame 3 = x 6
+// ------------------------------------------------------
+#define PLAYER_ANIM_FRAMES      4
+#define PLAYER_TILES_PER_FRAME  8   // 2 x 4 tiles
+
+#define OBJ_TILE_PLAYER_RIGHT   0
+#define OBJ_TILE_PLAYER_LEFT    (OBJ_TILE_PLAYER_RIGHT + PLAYER_ANIM_FRAMES * PLAYER_TILES_PER_FRAME)
+#define OBJ_TILE_PLAYER_UP      (OBJ_TILE_PLAYER_LEFT  + PLAYER_ANIM_FRAMES * PLAYER_TILES_PER_FRAME)
+#define OBJ_TILE_PLAYER_DOWN    (OBJ_TILE_PLAYER_UP    + PLAYER_ANIM_FRAMES * PLAYER_TILES_PER_FRAME)
 
 // Palette row used by the player sprite.
-// Leave as 0 unless your sprite art is exported into a different OBJ palette row.
-#define PLAYER_PALROW       0
+#define PLAYER_PALROW           0
 
+// Direction values for animation selection
+#define DIR_RIGHT  0
+#define DIR_LEFT   1
+#define DIR_UP     2
+#define DIR_DOWN   3
+
+// ======================================================
+//                    SPAWN POSITIONS
+// ======================================================
+
+// Default home spawn when starting fresh
+#define HOME_SPAWN_X                (4 * 8)
+
+// Home return positions for transitions
+#define HOME_FROM_LEVEL1_SPAWN_X    (6 * 8)   // adjust if needed
+#define HOME_FROM_LEVEL2_SPAWN_X    (4 * 8)  // place near Home -> Level 2 doorway
+
+// Level entry positions
+#define LEVEL1_SPAWN_X              (60 * 8)   // moved left a bit
+#define LEVEL2_SPAWN_X              (4 * 8)  // moved right a bit
+
+// Return position in HOME when coming back from Level 2
+#define HOME_FROM_LEVEL2_SPAWN_X    (29 * 8)
+#define HOME_FROM_LEVEL2_SPAWN_Y    (22 * 8)
 // ======================================================
 //                    COLORS / PALETTE HELPERS
 // ======================================================
@@ -107,9 +158,12 @@ typedef struct {
     int height;
     int grounded;
     int climbing;
-    int facingLeft;
-    int animFrame;
-    int animCounter;
+
+    // Animation state
+    int direction;      // DIR_RIGHT / DIR_LEFT / DIR_UP / DIR_DOWN
+    int animFrame;      // 0..3
+    int animCounter;    // frame timing
+    int isMoving;       // true while actively walking/climbing
 } Player;
 
 typedef struct {

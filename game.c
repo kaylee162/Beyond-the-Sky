@@ -59,6 +59,7 @@ static void updateWin(void);
 
 static void updateGameplayCommon(void);
 static void updatePlayerMovement(void);
+static void updatePlayerAnimation(void);
 static void updateCamera(void);
 static void drawGameplay(void);
 static void drawSprites(void);
@@ -122,13 +123,59 @@ static void initBgAssets(void) {
 static void initObjAssets(void) {
     DMANow(3, (void*)spriteSheetPal, SPRITE_PAL, spriteSheetPalLen / 2);
 
-    // Clear enough OBJ tile memory that stale sprite art does not show up.
+    // Clear OBJ tile memory so stale sprite graphics do not appear.
     static unsigned short zero = 0;
     DMANow(3, &zero, (volatile unsigned short*)0x6010000, (32 * 32) | DMA_SOURCE_FIXED);
 
-    // The player now occupies one clean 2x4 tile block at the top-left of the
-    // sprite sheet, so repack that 16x32 block directly into OBJ tile slot 0.
-    copySpriteBlockFromSheet(spriteSheetTiles, 32, 0, 0, 2, 4, OBJ_TILE_PLAYER);
+    // --------------------------------------------------
+    // Copy all 4 directions x 4 frames from the exported sheet.
+    //
+    // Each frame is 2x4 tiles (16x32 pixels).
+    // Rows are stacked directly with no empty space between them.
+    //
+    // Right row starts at tile y = 0
+    // Left  row starts at tile y = 4
+    // Up    row starts at tile y = 8
+    // Down  row starts at tile y = 12
+    //
+    // Each frame is 2 tiles wide, so frame X positions are:
+    // 0, 2, 4, 6
+    // --------------------------------------------------
+    for (int frame = 0; frame < PLAYER_ANIM_FRAMES; frame++) {
+        int srcTileX = frame * 2;
+
+        // Right
+        copySpriteBlockFromSheet(
+            spriteSheetTiles, 32,
+            srcTileX, 0,
+            2, 4,
+            OBJ_TILE_PLAYER_RIGHT + frame * PLAYER_TILES_PER_FRAME
+        );
+
+        // Left
+        copySpriteBlockFromSheet(
+            spriteSheetTiles, 32,
+            srcTileX, 4,
+            2, 4,
+            OBJ_TILE_PLAYER_LEFT + frame * PLAYER_TILES_PER_FRAME
+        );
+
+        // Up / climbing up
+        copySpriteBlockFromSheet(
+            spriteSheetTiles, 32,
+            srcTileX, 8,
+            2, 4,
+            OBJ_TILE_PLAYER_UP + frame * PLAYER_TILES_PER_FRAME
+        );
+
+        // Down / falling / climbing down
+        copySpriteBlockFromSheet(
+            spriteSheetTiles, 32,
+            srcTileX, 12,
+            2, 4,
+            OBJ_TILE_PLAYER_DOWN + frame * PLAYER_TILES_PER_FRAME
+        );
+    }
 }
 
 void initGame(void) {
@@ -293,23 +340,28 @@ static void goToHome(int respawn) {
     player.height = PLAYER_HEIGHT;
 
     if (!respawn) {
-        // Home spawn:
-        // You said the player's TOP-LEFT should be about 8 tiles up from the bottom.
-        // Use that as the preferred target, then snap to the nearest valid standing spot.
-        player.x = 0;
+        // Default home spawn used for fresh entry.
+        player.x = HOME_SPAWN_X;
         player.y = findStandingSpawnY(player.x, levelHeight - (8 * 8));
     } else {
         player.x = respawnX;
-        player.y = respawnY;
+        // If no exact Y was supplied, find a valid standing position now
+        // after the home map has already loaded.
+        if (respawnY < 0) {
+            player.y = findStandingSpawnY(player.x, levelHeight - (8 * 8));
+        } else {
+            player.y = respawnY;
+        }
     }
 
     player.xVel = 0;
     player.yVel = 0;
     player.grounded = 0;
     player.climbing = 0;
-    player.facingLeft = 0;
+    player.direction = DIR_RIGHT;
     player.animFrame = 0;
     player.animCounter = 0;
+    player.isMoving = 0;
     player.oldX = player.x;
     player.oldY = player.y;
 
@@ -339,11 +391,9 @@ static void goToLevelOne(int respawn) {
     player.height = PLAYER_HEIGHT;
 
     if (!respawn) {
-        // Level 1 spawn:
-        // Spawn on the bottom-right side instead of the left.
-        // Preferred top-left is also about 8 tiles up from the bottom,
-        // then snap to a valid standing position.
-        player.x = levelWidth - player.width;
+        // Spawn on the ground near the left side of the map.
+        // Moved slightly LEFT from the previous position.
+        player.x = LEVEL1_SPAWN_X;
         player.y = findStandingSpawnY(player.x, levelHeight - (8 * 8));
     } else {
         player.x = respawnX;
@@ -354,9 +404,10 @@ static void goToLevelOne(int respawn) {
     player.yVel = 0;
     player.grounded = 0;
     player.climbing = 0;
-    player.facingLeft = 1;
+    player.direction = DIR_LEFT;
     player.animFrame = 0;
     player.animCounter = 0;
+    player.isMoving = 0;
     player.oldX = player.x;
     player.oldY = player.y;
 
@@ -388,12 +439,10 @@ static void goToLevelTwo(int respawn) {
     player.height = PLAYER_HEIGHT;
 
     if (!respawn) {
-        // Level 2 spawn:
-        // You wanted this about 10 tiles higher than before.
-        // Old rough baseline was near the bottom, so use that as a reference,
-        // then move up 10 tiles and snap to a valid standing position.
-        player.x = 0;
-        player.y = findStandingSpawnY(player.x, (levelHeight - 24 - PLAYER_HEIGHT) - (10 * 8));
+        // Spawn on the ground near the left side of the map.
+        // Moved slightly RIGHT from the previous position.
+        player.x = LEVEL2_SPAWN_X;
+        player.y = findStandingSpawnY(player.x, 6 * 8);
     } else {
         player.x = respawnX;
         player.y = respawnY;
@@ -403,9 +452,10 @@ static void goToLevelTwo(int respawn) {
     player.yVel = 0;
     player.grounded = 0;
     player.climbing = 0;
-    player.facingLeft = 0;
+    player.direction = DIR_RIGHT;
     player.animFrame = 0;
     player.animCounter = 0;
+    player.isMoving = 0;
     player.oldX = player.x;
     player.oldY = player.y;
 
@@ -517,23 +567,44 @@ static void updateGameplayCommon(void) {
         return;
     }
 
-    // Optional cheat toggle if you still want it.
+    // Optional cheat toggle
     if (BUTTON_PRESSED(BUTTON_SELECT) && BUTTON_HELD(BUTTON_UP)) {
         instantGrowCheat = !instantGrowCheat;
     }
 
-    // Move the player using collision-map rules.
+    // Move the player first
     updatePlayerMovement();
 
-    // Check transition tiles after movement.
+    // Then update the animation based on the movement result
+    updatePlayerAnimation();
+
+    // Check for transition tiles after movement
     handleLevelTransitions();
 
-    // Update camera after movement / transitions.
+    // Update camera after movement / transitions
     updateCamera();
 
-    // Hazard check.
+    // Hazard / death check
     if (touchesHazard() || player.y > levelHeight + 16) {
         goToLose(currentLevel);
+    }
+}
+
+static void updatePlayerAnimation(void) {
+    // When the player is not actively walking/climbing,
+    // return to the idle frame.
+    if (!player.isMoving) {
+        player.animFrame = 0;
+        player.animCounter = 0;
+        return;
+    }
+
+    // Advance animation every few game frames.
+    // Lower number = faster animation.
+    player.animCounter++;
+    if (player.animCounter >= 6) {
+        player.animCounter = 0;
+        player.animFrame = (player.animFrame + 1) % PLAYER_ANIM_FRAMES;
     }
 }
 
@@ -541,6 +612,9 @@ static void updatePlayerMovement(void) {
     int dx = 0;
     int step;
     int remaining;
+    int wantsClimbUp;
+    int wantsClimbDown;
+    int wasActivelyMoving = 0;
 
     player.oldX = player.x;
     player.oldY = player.y;
@@ -551,39 +625,34 @@ static void updatePlayerMovement(void) {
     player.grounded = isStandingOnSolid();
 
     // --------------------------------------------------
-    // Horizontal movement
+    // Read movement input
     // --------------------------------------------------
     if (BUTTON_HELD(BUTTON_LEFT)) {
         dx -= MOVE_SPEED;
-        player.facingLeft = 1;
+        player.direction = DIR_LEFT;
     }
 
     if (BUTTON_HELD(BUTTON_RIGHT)) {
         dx += MOVE_SPEED;
-        player.facingLeft = 0;
+        player.direction = DIR_RIGHT;
     }
+
+    wantsClimbUp = BUTTON_HELD(BUTTON_UP);
+    wantsClimbDown = BUTTON_HELD(BUTTON_DOWN);
 
     // --------------------------------------------------
     // Climbing logic
-    //
-    // Holding UP while touching a climb tile should begin climbing.
-    // Once climbing, UP continues climbing upward and DOWN climbs down.
     // --------------------------------------------------
-    if (BUTTON_HELD(BUTTON_UP) && onClimbTile()) {
+    if (wantsClimbUp && onClimbTile()) {
         player.climbing = 1;
         player.yVel = 0;
         player.grounded = 0;
     } else if (!onClimbTile()) {
-        // Only force climbing off when the player is no longer
-        // touching the climb area at all.
         player.climbing = 0;
     }
 
     // --------------------------------------------------
     // Jump logic
-    //
-    // If the player is grounded and presses UP while NOT on a climb tile,
-    // jump. This prevents jump/climb conflict on ladders/beanstalks.
     // --------------------------------------------------
     if (!player.climbing && BUTTON_PRESSED(BUTTON_UP) && player.grounded && !onClimbTile()) {
         player.yVel = JUMP_VEL;
@@ -627,10 +696,10 @@ static void updatePlayerMovement(void) {
     if (player.climbing) {
         int climbDy = 0;
 
-        if (BUTTON_HELD(BUTTON_UP)) {
+        if (wantsClimbUp) {
             climbDy -= CLIMB_SPEED;
         }
-        if (BUTTON_HELD(BUTTON_DOWN)) {
+        if (wantsClimbDown) {
             climbDy += CLIMB_SPEED;
         }
 
@@ -639,8 +708,6 @@ static void updatePlayerMovement(void) {
             remaining = (climbDy > 0) ? climbDy : -climbDy;
 
             while (remaining > 0) {
-                // Keep allowing motion while the player is still touching
-                // the climb region at the new position.
                 if (canMoveTo(player.x, player.y + step) &&
                     onClimbTileAt(player.x, player.y + step)) {
                     player.y += step;
@@ -689,13 +756,56 @@ static void updatePlayerMovement(void) {
         player.y = levelHeight - player.height;
     }
 
+    // --------------------------------------------------
     // Final grounded check
+    // --------------------------------------------------
     if (!player.climbing) {
         player.grounded = isStandingOnSolid();
         if (player.grounded && player.yVel > 0) {
             player.yVel = 0;
         }
     }
+
+    // --------------------------------------------------
+    // Decide which animation row to use
+    // --------------------------------------------------
+
+    // Walking left/right
+    if (dx < 0) {
+        player.direction = DIR_LEFT;
+    } else if (dx > 0) {
+        player.direction = DIR_RIGHT;
+    }
+
+    // Climbing overrides ground walk direction
+    if (player.climbing) {
+        if (wantsClimbUp && player.y < player.oldY) {
+            player.direction = DIR_UP;
+        } else if (wantsClimbDown && player.y > player.oldY) {
+            player.direction = DIR_DOWN;
+        }
+    }
+    // Falling / airborne uses the down row
+    else if (!player.grounded) {
+        player.direction = DIR_DOWN;
+    }
+
+    // --------------------------------------------------
+    // Decide whether to animate this frame
+    //
+    // Animate while:
+    // - walking left/right on purpose
+    // - climbing up/down on purpose
+    //
+    // Do not animate passive falling unless you want that later.
+    // --------------------------------------------------
+    if ((dx != 0 && player.x != player.oldX) ||
+        (player.climbing && wantsClimbUp && player.y < player.oldY) ||
+        (player.climbing && wantsClimbDown && player.y > player.oldY)) {
+        wasActivelyMoving = 1;
+    }
+
+    player.isMoving = wasActivelyMoving;
 }
 
 static void updateCamera(void) {
@@ -822,48 +932,64 @@ static int touchesHazard(void) {
 }
 
 static void handleLevelTransitions(void) {
-    // Sample the center-bottom of the player.
-    // This works well for doorway / portal / transition tiles.
-    int probeX = player.x + (player.width / 2);
-    int probeY = player.y + player.height - 1;
+    // Sample the player's feet area for transition tiles.
+    // Checking left / center / right is more reliable than a single point.
+    int leftX   = player.x + 2;
+    int centerX = player.x + (player.width / 2);
+    int rightX  = player.x + player.width - 3;
+    int probeY  = player.y + player.height - 1;
 
     // --------------------------------------------------
     // HOME -> LEVEL ONE
-    // Only trigger if we are currently in HOME and we
-    // touch collision index 4.
     // --------------------------------------------------
-    if (currentLevel == LEVEL_HOME && isHomeToLevel1Pixel(currentLevel, probeX, probeY)) {
+    if (currentLevel == LEVEL_HOME &&
+        (isHomeToLevel1Pixel(currentLevel, leftX, probeY) ||
+         isHomeToLevel1Pixel(currentLevel, centerX, probeY) ||
+         isHomeToLevel1Pixel(currentLevel, rightX, probeY))) {
         goToLevelOne(0);
         return;
     }
 
     // --------------------------------------------------
     // LEVEL ONE -> HOME
-    // Only trigger if we are currently in LEVEL ONE and
-    // we touch collision index 5.
+    // Return near the Level 1 doorway area in home.
     // --------------------------------------------------
-    if (currentLevel == LEVEL_ONE && isLevel1ToHomePixel(currentLevel, probeX, probeY)) {
-        goToHome(0);
+    if (currentLevel == LEVEL_ONE &&
+        (isLevel1ToHomePixel(currentLevel, leftX, probeY) ||
+         isLevel1ToHomePixel(currentLevel, centerX, probeY) ||
+         isLevel1ToHomePixel(currentLevel, rightX, probeY))) {
+        respawnX = HOME_FROM_LEVEL1_SPAWN_X;
+        respawnY = -1;   // let goToHome() compute a safe standing Y
+        goToHome(1);
         return;
     }
 
     // --------------------------------------------------
     // HOME -> LEVEL TWO
-    // Only trigger if we are currently in HOME and we
-    // touch collision index 6.
     // --------------------------------------------------
-    if (currentLevel == LEVEL_HOME && isHomeToLevel2Pixel(currentLevel, probeX, probeY)) {
+    if (currentLevel == LEVEL_HOME &&
+        (isHomeToLevel2Pixel(currentLevel, leftX, probeY) ||
+         isHomeToLevel2Pixel(currentLevel, centerX, probeY) ||
+         isHomeToLevel2Pixel(currentLevel, rightX, probeY))) {
         goToLevelTwo(0);
         return;
     }
 
     // --------------------------------------------------
     // LEVEL TWO -> HOME
-    // Only trigger if we are currently in LEVEL TWO and
-    // we touch collision index 7.
+    // Return near the Level 2 doorway area in home.
     // --------------------------------------------------
-    if (currentLevel == LEVEL_TWO && isLevel2ToHomePixel(currentLevel, probeX, probeY)) {
-        goToHome(0);
+    if (currentLevel == LEVEL_TWO &&
+        (isLevel2ToHomePixel(currentLevel, leftX, probeY) ||
+        isLevel2ToHomePixel(currentLevel, centerX, probeY) ||
+        isLevel2ToHomePixel(currentLevel, rightX, probeY))) {
+
+        // Return to the Level 2 doorway area in homebase.
+        // X is about 30 tiles.
+        // Y is about 42 tiles up, adjusted so the player's feet land there.
+        respawnX = HOME_FROM_LEVEL2_SPAWN_X;
+        respawnY = HOME_FROM_LEVEL2_SPAWN_Y - player.height;
+        goToHome(1);
         return;
     }
 }
@@ -882,24 +1008,30 @@ static void drawSprites(void) {
     int screenX = player.x - hOff;
     int screenY = player.y - vOff;
 
-    // The new player is a single 16x32 OBJ. Hide it cleanly if it is fully
-    // offscreen. Also hide the three old helper sprites so stale art from the
-    // previous 24x48 setup never shows up.
-    if (screenX < -player.width || screenX >= SCREENWIDTH ||
-        screenY < -player.height || screenY >= SCREENHEIGHT) {
-        hideSprite(0);
-    } else {
-        shadowOAM[0].attr0 = ATTR0_Y(screenY) | ATTR0_TALL | ATTR0_4BPP;
-        shadowOAM[0].attr1 = ATTR1_X(screenX) | ATTR1_MEDIUM;
+        if (screenX < -player.width || screenX >= SCREENWIDTH ||
+            screenY < -player.height || screenY >= SCREENHEIGHT) {
+            hideSprite(0);
+        } else {
+            int tileBase;
 
-        if (player.facingLeft) {
-            shadowOAM[0].attr1 |= ATTR1_HFLIP;
+            // Pick the correct directional animation row.
+            if (player.direction == DIR_LEFT) {
+                tileBase = OBJ_TILE_PLAYER_LEFT + player.animFrame * PLAYER_TILES_PER_FRAME;
+            } else if (player.direction == DIR_UP) {
+                tileBase = OBJ_TILE_PLAYER_UP + player.animFrame * PLAYER_TILES_PER_FRAME;
+            } else if (player.direction == DIR_DOWN) {
+                tileBase = OBJ_TILE_PLAYER_DOWN + player.animFrame * PLAYER_TILES_PER_FRAME;
+            } else {
+                tileBase = OBJ_TILE_PLAYER_RIGHT + player.animFrame * PLAYER_TILES_PER_FRAME;
+            }
+
+            // 16x32 sprite = TALL + MEDIUM
+            shadowOAM[0].attr0 = ATTR0_Y(screenY) | ATTR0_TALL | ATTR0_4BPP;
+            shadowOAM[0].attr1 = ATTR1_X(screenX) | ATTR1_MEDIUM;
+            shadowOAM[0].attr2 = ATTR2_TILEID(tileBase)
+                | ATTR2_PRIORITY(0)
+                | ATTR2_PALROW(PLAYER_PALROW);
         }
-
-        shadowOAM[0].attr2 = ATTR2_TILEID(OBJ_TILE_PLAYER)
-            | ATTR2_PRIORITY(0)
-            | ATTR2_PALROW(PLAYER_PALROW);
-    }
 
     // Hide leftover sprite slots from the old multi-piece player.
     hideSprite(1);
