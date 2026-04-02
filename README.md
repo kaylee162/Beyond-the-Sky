@@ -1,125 +1,181 @@
 # Beyond the Sky
 
 ## Overview
-Beyond the Sky is a Game Boy Advance platformer built in Mode 0 where the player explores a peaceful home environment and a side-scrolling sky level. The core gameplay loop focuses on collecting resources, depositing them to grow a beanstalk, and progressing upward into the sky.
+Beyond the Sky is a Game Boy Advance platformer built using Mode 0. The game blends a calm, grounded home environment with a vertical, side-scrolling sky level where players collect resources to grow a magical beanstalk.
 
-This project emphasizes smooth movement, simple mechanics, and a relaxing gameplay experience while still incorporating light platforming challenges.
+The core experience focuses on smooth movement, light platforming, and a relaxing progression loop. As the player gathers resources and returns them home, the beanstalk grows, unlocking new vertical areas and challenges.
 
 ---
 
 ## Controls
 
-- D-Pad Left/Right → Move
-- A → Jump
-- UP / DOWN → Climb ladder (beanstalk)
-- START → Pause / Resume
-- SELECT → Toggle debug cheats (Milestone feature)
+- **D-Pad Left/Right** → Move
+- **A** → Jump
+- **UP / DOWN** → Climb beanstalk (ladder mechanic)
+- **START** → Pause / Resume
+- **SELECT** → Toggle debug cheats
 
 ---
 
-## Current Features (Milestone 1)
+## Features
 
 ### Game States
 - Start Screen
 - Instructions Screen
-- Home Level
-- Sky Level (side-scrolling)
+- Home Level (hub area)
+- Sky Level (scrolling platforming level)
 - Pause Screen
-- Win / Lose Screens
+- Win Screen
+- Lose Screen
 
-### Core Mechanics
-- Player movement with gravity and jumping
-- Ladder climbing (beanstalk mechanic)
-- Camera follows player in scrolling level
-- Basic collision detection with world
-- Hazard that resets player (lose condition)
-- Collectible resource items in sky level
-- Deposit system at home soil patch
-- Beanstalk growth system (progression)
+---
+
+### Core Gameplay Mechanics
+- Smooth player movement with gravity and jump physics
+- Ladder climbing system using the beanstalk
+- Resource collection in the sky level
+- Deposit system at the home soil patch
+- Dynamic beanstalk growth tied to player progression
+- Hazard interactions that reset player state
+- Win/Lose conditions based on progression and hazards
+
+---
+
+### Level Design
+- **Home Level**
+  - Central hub for depositing resources
+  - Beanstalk growth visualization
+  - Safe exploration space
+
+- **Game Levels**
+  - Side-scrolling camera system
+  - Floating platforms and collectibles
+  - Increasing vertical progression
+  - Hazard placement for light challenge
+
+---
+
+### Camera & Movement Systems
+- Smooth horizontal camera tracking
+- World bounds and edge constraints
+- Player-centered scrolling in sky level
+
+---
 
 ### Visual Systems
-- Mode 0 tiled backgrounds
-- Placeholder tiles and sprites
-- Basic parallax cloud effect
-- HUD text using font rendering
+- Mode 0 tile-based rendering
+- Multiple background layers:
+  - Gameplay layer
+  - HUD layer
+  - Parallax background (clouds)
+- Animated or dynamic visual elements
+- Custom font rendering for HUD/text
 
-### Debug / Cheat Features
-- Instant beanstalk growth toggle
-- (Used for testing progression quickly)
+---
+
+### UI / HUD
+- On-screen text rendering system
+- Resource tracking display
+- Clear feedback for game states (pause, win, lose)
+
+---
+
+### Debug / Cheat Features To Come
+- Toggleable debug mode
+- Instant beanstalk growth
+- Used for rapid testing and progression validation
 
 ---
 
 ## Gameplay Loop
 
-1. Start in the Home Level
-2. Travel to the Sky Level
-3. Collect floating resources
-4. Return to Home
-5. Deposit resources at the soil patch
-6. Grow the beanstalk
-7. Climb higher to unlock progression
+1. Start in the **Home Level**
+2. Travel into **Level One**
+3. Collect resources
+4. Avoid hazards while platforming
+5. Return to the **Home Level**
+6. Deposit resources into the soil
+7. Grow the beanstalk
+9. Climb higher to Level Two and progress to the top
+10. Win the Game by getting to the top of the beanstalk
 
 ---
 
 ## Technical Details
 
-- Built using Mode 0 (tile-based rendering)
-- Multiple background layers (HUD + gameplay + parallax)
+- Built using **Mode 0** (tile-based rendering)
+- Multiple background layers for parallax and HUD
 - Tilemap + collision map system
-- Camera scrolling with world bounds
-- Reuses and extends HW05 engine structure
-- Written in C using devkitARM toolchain
+- Camera system with smooth scrolling and bounds
+- Sprite handling via OAM
+- Modular state machine for game flow
+- Written in **C** using the **devkitARM toolchain**
+- Based on and extended from course engine architecture
 
 ---
 
 ## Project Structure
 
-- `main.c` → Game loop and state machine
-- `game.c / game.h` → Core gameplay logic
-- `levels.c / levels.h` → Level setup and data
-- `mode0.c / mode0.h` → Background rendering helpers
-- `sprites.c / sprites.h` → Sprite/OAM handling
-- `gba.c / gba.h` → Hardware abstraction
-- `font.c / font.h` → Text rendering
+- `main.c`  
+  Main game loop and state machine
+
+- `game.c / game.h`  
+  Core gameplay systems and logic
+
+- `levels.c / levels.h`  
+  Level data and initialization
+
+- `mode0.c / mode0.h`  
+  Background and tile rendering helpers
+
+- `sprites.c / sprites.h`  
+  Sprite/OAM management
+
+- `gba.c / gba.h`  
+  Hardware abstraction layer
+
+- `font.c / font.h`  
+  Text rendering system
 
 ---
 
-## Planned Features (Final Submission)
+## Highlights / Improvements
 
-### Gameplay Additions
-- Multiple resource types with different effects
-- Expanded sky level with more vertical progression
-- Additional hazards (falling objects, enemies, wind zones)
-- More structured win condition (reach final height / objective)
+- Expanded gameplay beyond initial milestone
+- Fully integrated progression system (beanstalk growth)
+- Improved camera and movement feel
+- More complete UI and player feedback
+- Cleaner separation of systems (rendering, logic, states)
 
-### Visual Improvements
-- Full custom sprite sheet (player, items, environment)
-- Polished tilemaps for both levels
-- Improved parallax backgrounds (multiple layers)
-- Animated tiles (clouds, collectibles, etc.)
+---
 
-### Mechanics Enhancements
-- Smoother physics and jump tuning
-- Improved ladder/beanstalk interaction
-- Inventory or resource counter UI
-- Sound effects (movement, collection, growth)
+## Future Improvements
 
-### UI / UX
-- Refined start and instruction screens
-- Clear HUD with resource tracking
-- Better win/lose feedback
+- Additional resource types with unique effects
+- More hazards (enemies, wind zones, falling objects)
+- Expanded vertical level design
+- Enhanced animations (player, environment, collectibles)
+- Sound effects and music integration
+- More polished art and tilemaps
 
 ---
 
 ## Notes
 
-- Placeholder graphics are currently used for development
-- Focus for Milestone 1 is functionality over polish
-- All major systems are implemented and ready for expansion
+- Developed as part of Georgia Tech CS 2261
+- Focused on balancing simplicity with polish
+- Designed to demonstrate core GBA systems:
+  - Rendering
+  - Input handling
+  - State management
+  - Collision and physics
 
 ---
 
 ## Credits
 
-Developed by Kaylee & Henry  
-Georgia Tech - CS 2261 (Media Device Architecture)
+**Developed by:**  
+Kaylee & Henry  
+
+Georgia Institute of Technology  
+CS 2261 - Media Device Architecture
