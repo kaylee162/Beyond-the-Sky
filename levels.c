@@ -178,11 +178,19 @@ int isClimbPixel(int level, int x, int y) {
 // ------------------------------------------------------
 
 int isHomeToLevel1Pixel(int level, int x, int y) {
-    return collisionAtPixel(level, x, y) == COL_HOME_TO_LEVEL1;
+    u8 value = collisionAtPixel(level, x, y);
+
+    // Treat either home->level1 transition tile as valid.
+    return value == COL_HOME_TO_LEVEL1_BOTTOM
+        || value == COL_HOME_TO_LEVEL1_TOP;
 }
 
 int isLevel1ToHomePixel(int level, int x, int y) {
-    return collisionAtPixel(level, x, y) == COL_LEVEL1_TO_HOME;
+    u8 value = collisionAtPixel(level, x, y);
+
+    // Treat either level1->home transition tile as valid.
+    return value == COL_LEVEL1_TO_HOME_BOTTOM
+        || value == COL_LEVEL1_TO_HOME_TOP;
 }
 
 int isHomeToLevel2Pixel(int level, int x, int y) {
