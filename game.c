@@ -1,3 +1,4 @@
+#include <string.h>
 #include "game.h"
 #include "tileset.h"
 #include "spriteSheet.h"
@@ -9,22 +10,33 @@ static int levelWidth;
 static int levelHeight;
 
 static Player player;
-static ResourceItem resource;
-static Bee bee;
+
+// Bean sprout collectible in the home world.
+// Reusing ResourceItem is fine here because it already stores x/y/active.
+static ResourceItem beanSprout;
 
 static int hOff;
 static int vOff;
 static int cloudHOff;
 static int frameCounter;
 
-static int carryingResource;
-static int beanstalkGrown;
+// Inventory bitmask.
+// Example:
+//   INVENTORY_BEAN_SPROUT
+//   INVENTORY_BONEMEAL
+//   INVENTORY_WATER
+static int inventoryFlags;
+
 static int instantGrowCheat;
 
 static int respawnX;
 static int respawnY;
+static int respawnPreferredY;
 static int loseReturnLevel;
 
+// Small upward launch when the player reaches the top of a ladder / vine.
+// This helps them "hop" onto the platform instead of getting stuck.
+#define LADDER_EXIT_BOOST  -4
 
 // --------------------------------------------------
 // FORWARD DECLARATIONS
@@ -65,15 +77,21 @@ static void drawGameplay(void);
 static void drawSprites(void);
 static void hideSprite(int index);
 
+static void initBeanSprout(void);
+static void updateCollectibles(void);
+static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh);
+static const char* getInventoryText(void);
+
 // Collision / interaction helpers
 static int canMoveTo(int newX, int newY);
 static int onClimbTile(void);
 static int onClimbTileAt(int x, int y);
+static int isAtTopOfClimb(int x, int y);
+static int tryStartLadderTopExit(void);
 static int isStandingOnSolid(void);
 static int findStandingSpawnY(int spawnX, int preferredTopY);
 static int touchesHazard(void);
 static void handleLevelTransitions(void);
-
 static void putText(int col, int row, const char* str);
 static void clearHud(void);
 
@@ -121,12 +139,21 @@ static void initBgAssets(void) {
 }
 
 static void initObjAssets(void) {
-    DMANow(3, (void*)spriteSheetPal, SPRITE_PAL, spriteSheetPalLen / 2);
+    // --------------------------------------------------
+    // Load OBJ palette rows explicitly:
+    //   palette row 0 = player
+    //   palette row 1 = all other sprites
+    //
+    // Assumes:
+    //   spriteSheetPal[0..15]   = player palette
+    //   spriteSheetPal[16..31]  = non-player palette
+    // --------------------------------------------------
+    DMANow(3, (void*)spriteSheetPal,      &SPRITE_PAL[16 * PLAYER_PALROW], 16);
+    DMANow(3, (void*)(spriteSheetPal + 16), &SPRITE_PAL[16 * WORLD_SPRITE_PALROW], 16);
 
     // Clear OBJ tile memory so stale sprite graphics do not appear.
     static unsigned short zero = 0;
     DMANow(3, &zero, (volatile unsigned short*)0x6010000, (32 * 32) | DMA_SOURCE_FIXED);
-
     // --------------------------------------------------
     // Copy all 4 directions x 4 frames from the exported sheet.
     //
@@ -176,14 +203,33 @@ static void initObjAssets(void) {
             OBJ_TILE_PLAYER_DOWN + frame * PLAYER_TILES_PER_FRAME
         );
     }
+
+    // --------------------------------------------------
+    // Copy bean sprout sprite art
+    //
+    // Sheet position:
+    //   top-left tile = (0, 21)
+    // Size:
+    //   2 tiles wide x 3 tiles tall
+    //
+    // This copies the 6 bean sprout tiles contiguously into OBJ VRAM.
+    // We'll draw them as:
+    //   top    16x16 using tiles 0..3 of this block
+    //   bottom 16x8  using tiles 4..5 of this block
+    // --------------------------------------------------
+    copySpriteBlockFromSheet(
+        spriteSheetTiles, 32,
+        0, 21,
+        2, 3,
+        OBJ_TILE_BEAN_SPROUT
+    );
 }
 
 void initGame(void) {
     initGraphics();
 
     frameCounter = 0;
-    carryingResource = 0;
-    beanstalkGrown = 0;
+    inventoryFlags = 0;
     instantGrowCheat = 0;
 
     currentLevel = LEVEL_HOME;
@@ -238,7 +284,7 @@ void drawGame(void) {
 
         case STATE_INSTRUCTIONS:
             clearHud();
-            drawMenuScreen("INSTRUCTIONS", "ARROWS MOVE", "A JUMP  START PAUSE", "SELECT+LEFT/RIGHT/DOWN TO WARP MAPS");
+            drawMenuScreen("INSTRUCTIONS", "LEFT/RIGHT MOVE  UP JUMP", "UP/DOWN CLIMB  START PAUSE", "GET WATER IN SKY LEVEL, RETURN, PRESS B ON SOIL");
             break;
 
         case STATE_HOME:
@@ -345,10 +391,11 @@ static void goToHome(int respawn) {
         player.y = findStandingSpawnY(player.x, levelHeight - (8 * 8));
     } else {
         player.x = respawnX;
+
         // If no exact Y was supplied, find a valid standing position now
-        // after the home map has already loaded.
+        // using the preferred search height chosen by the transition.
         if (respawnY < 0) {
-            player.y = findStandingSpawnY(player.x, levelHeight - (8 * 8));
+            player.y = findStandingSpawnY(player.x, respawnPreferredY);
         } else {
             player.y = respawnY;
         }
@@ -367,6 +414,10 @@ static void goToHome(int respawn) {
 
     respawnX = player.x;
     respawnY = player.y;
+
+    // Rebuild the bean sprout each time home is loaded.
+    // If the player already collected it, initBeanSprout() will keep it hidden.
+    initBeanSprout();
 
     hOff = 0;
     vOff = levelHeight - SCREENHEIGHT;
@@ -391,13 +442,19 @@ static void goToLevelOne(int respawn) {
     player.height = PLAYER_HEIGHT;
 
     if (!respawn) {
-        // Spawn on the ground near the left side of the map.
-        // Moved slightly LEFT from the previous position.
-        player.x = LEVEL1_SPAWN_X;
-        player.y = findStandingSpawnY(player.x, levelHeight - (8 * 8));
+        // Default/fallback Level 1 spawn.
+        player.x = LEVEL1_FROM_HOME_BOTTOM_SPAWN_X;
+        player.y = findStandingSpawnY(player.x, LEVEL1_FROM_HOME_BOTTOM_PREF_Y);
     } else {
         player.x = respawnX;
-        player.y = respawnY;
+
+        // If no exact Y was supplied, compute a safe standing Y from the
+        // preferred search height selected by the transition tile.
+        if (respawnY < 0) {
+            player.y = findStandingSpawnY(player.x, respawnPreferredY);
+        } else {
+            player.y = respawnY;
+        }
     }
 
     player.xVel = 0;
@@ -554,8 +611,8 @@ static void updateLose(void) {
 
 static void updateWin(void) {
     if (BUTTON_PRESSED(BUTTON_START)) {
-        carryingResource = 0;
-        beanstalkGrown = 0;
+        // Fresh run after winning.
+        inventoryFlags = 0;
         goToStart();
     }
 }
@@ -574,6 +631,9 @@ static void updateGameplayCommon(void) {
 
     // Move the player first
     updatePlayerMovement();
+
+    // Check item pickups after movement.
+    updateCollectibles();
 
     // Then update the animation based on the movement result
     updatePlayerAnimation();
@@ -615,6 +675,7 @@ static void updatePlayerMovement(void) {
     int wantsClimbUp;
     int wantsClimbDown;
     int wasActivelyMoving = 0;
+    int onClimbNow;
 
     player.oldX = player.x;
     player.oldY = player.y;
@@ -639,22 +700,26 @@ static void updatePlayerMovement(void) {
 
     wantsClimbUp = BUTTON_HELD(BUTTON_UP);
     wantsClimbDown = BUTTON_HELD(BUTTON_DOWN);
+    onClimbNow = onClimbTile();
 
     // --------------------------------------------------
     // Climbing logic
     // --------------------------------------------------
-    if (wantsClimbUp && onClimbTile()) {
+    if (onClimbNow && (wantsClimbUp || wantsClimbDown)) {
         player.climbing = 1;
         player.yVel = 0;
         player.grounded = 0;
-    } else if (!onClimbTile()) {
+    } else if (!onClimbNow) {
         player.climbing = 0;
     }
 
     // --------------------------------------------------
     // Jump logic
+    //
+    // Normal jump only when not climbing.
+    // Ladder-top exit is handled separately below.
     // --------------------------------------------------
-    if (!player.climbing && BUTTON_PRESSED(BUTTON_UP) && player.grounded && !onClimbTile()) {
+    if (!player.climbing && BUTTON_PRESSED(BUTTON_UP) && player.grounded) {
         player.yVel = JUMP_VEL;
         player.grounded = 0;
     }
@@ -708,14 +773,36 @@ static void updatePlayerMovement(void) {
             remaining = (climbDy > 0) ? climbDy : -climbDy;
 
             while (remaining > 0) {
-                if (canMoveTo(player.x, player.y + step) &&
-                    onClimbTileAt(player.x, player.y + step)) {
-                    player.y += step;
+                int nextY = player.y + step;
+
+                // Normal climb movement: keep moving if the next position is
+                // open and still overlaps climb tiles.
+                if (canMoveTo(player.x, nextY) &&
+                    onClimbTileAt(player.x, nextY)) {
+                    player.y = nextY;
+                }
+                // Special case: climbing upward at the top of the ladder / vine.
+                // Leave climb mode and give the player a mini upward launch.
+                else if (step < 0 && wantsClimbUp && isAtTopOfClimb(player.x, player.y)) {
+                    tryStartLadderTopExit();
+                    wasActivelyMoving = 1;
+                    break;
                 } else {
                     break;
                 }
+
                 remaining--;
             }
+        }
+
+        // If the body no longer overlaps the climb tiles, leave climb mode.
+        // If the body no longer overlaps the climb tiles, leave climb mode.
+        // Do NOT zero yVel here — if tryStartLadderTopExit just gave the player
+        // an upward boost, zeroing it would cancel the launch immediately.
+        if (!onClimbTile()) {
+            player.climbing = 0;
+            player.grounded = isStandingOnSolid();
+            // yVel intentionally preserved so ladder-exit boost is not cancelled
         }
     } else {
         // --------------------------------------------------
@@ -770,38 +857,29 @@ static void updatePlayerMovement(void) {
     // Decide which animation row to use
     // --------------------------------------------------
 
-    // Walking left/right
     if (dx < 0) {
         player.direction = DIR_LEFT;
     } else if (dx > 0) {
         player.direction = DIR_RIGHT;
     }
 
-    // Climbing overrides ground walk direction
     if (player.climbing) {
         if (wantsClimbUp && player.y < player.oldY) {
             player.direction = DIR_UP;
         } else if (wantsClimbDown && player.y > player.oldY) {
             player.direction = DIR_DOWN;
         }
-    }
-    // Falling / airborne uses the down row
-    else if (!player.grounded) {
+    } else if (!player.grounded) {
         player.direction = DIR_DOWN;
     }
 
     // --------------------------------------------------
     // Decide whether to animate this frame
-    //
-    // Animate while:
-    // - walking left/right on purpose
-    // - climbing up/down on purpose
-    //
-    // Do not animate passive falling unless you want that later.
     // --------------------------------------------------
     if ((dx != 0 && player.x != player.oldX) ||
         (player.climbing && wantsClimbUp && player.y < player.oldY) ||
-        (player.climbing && wantsClimbDown && player.y > player.oldY)) {
+        (player.climbing && wantsClimbDown && player.y > player.oldY) ||
+        (!player.climbing && player.y < player.oldY)) {
         wasActivelyMoving = 1;
     }
 
@@ -906,6 +984,72 @@ static int onClimbTileAt(int x, int y) {
         || isClimbPixel(currentLevel, centerX, footY);
 }
 
+// True when the player's lower body is still on the ladder / vine,
+// but the upper body has already cleared it.
+// This is the exact "I'm at the top and should get off now" case.
+static int isAtTopOfClimb(int x, int y) {
+    int centerX = x + (player.width / 2);
+
+    int headY  = y + 2;
+    int chestY = y + 8;
+    int hipY   = y + player.height - 10;
+    int footY  = y + player.height - 2;
+
+    int upperOnClimb = isClimbPixel(currentLevel, centerX, headY)
+                    || isClimbPixel(currentLevel, centerX, chestY);
+
+    int lowerOnClimb = isClimbPixel(currentLevel, centerX, hipY)
+                    || isClimbPixel(currentLevel, centerX, footY);
+
+    return lowerOnClimb && !upperOnClimb;
+}
+
+// Detect when the player is at the top of the ladder and launch them upward
+// so they can land on the platform above instead of getting stuck.
+//
+// Strategy:
+//   1. Scan upward pixel-by-pixel until we find a Y where the player body
+//      is FULLY clear of all climb tiles (not just open space).
+//   2. Teleport the player to that Y so the next frame cannot re-engage
+//      climb mode automatically.
+//   3. Apply a small upward velocity so they arc cleanly onto the ledge.
+//
+// If no fully-clear position exists within the scan range (e.g. solid
+// ceiling directly above), we still leave climb mode and apply the boost
+// so the player is not permanently trapped.
+static int tryStartLadderTopExit(void) {
+    int pop;
+
+    // Scan upward. Try to find a spot where:
+    //   (a) the position is walkable (no solid collision), AND
+    //   (b) the player body no longer overlaps any climb tile.
+    // Condition (b) is the key addition — without it the very next frame
+    // sees onClimbTile()==true and re-enters climb mode immediately.
+    for (pop = 1; pop <= 10; pop++) {
+        int testY = player.y - pop;
+
+        if (testY < 0) {
+            break;
+        }
+
+        if (canMoveTo(player.x, testY) && !onClimbTileAt(player.x, testY)) {
+            // Found a clean exit position above the ladder top.
+            player.y     = testY;
+            player.climbing = 0;
+            player.grounded = 0;
+            player.yVel  = LADDER_EXIT_BOOST; // small upward arc (-4)
+            return 1;
+        }
+    }
+
+    // Fallback: no clean gap found (tight ceiling, etc.).
+    // Still force-exit climb mode so the player is never permanently stuck.
+    player.climbing = 0;
+    player.grounded = 0;
+    player.yVel     = LADDER_EXIT_BOOST;
+    return 1;
+}
+
 static int isStandingOnSolid(void) {
     int leftFootX  = player.x + 2;
     int rightFootX = player.x + player.width - 3;
@@ -939,27 +1083,71 @@ static void handleLevelTransitions(void) {
     int rightX  = player.x + player.width - 3;
     int probeY  = player.y + player.height - 1;
 
+    // Read the exact collision-map palette index under each probe.
+    u8 leftTile   = collisionAtPixel(currentLevel, leftX, probeY);
+    u8 centerTile = collisionAtPixel(currentLevel, centerX, probeY);
+    u8 rightTile  = collisionAtPixel(currentLevel, rightX, probeY);
+
     // --------------------------------------------------
-    // HOME -> LEVEL ONE
+    // HOME -> LEVEL ONE (bottom/original portal)
     // --------------------------------------------------
     if (currentLevel == LEVEL_HOME &&
-        (isHomeToLevel1Pixel(currentLevel, leftX, probeY) ||
-         isHomeToLevel1Pixel(currentLevel, centerX, probeY) ||
-         isHomeToLevel1Pixel(currentLevel, rightX, probeY))) {
-        goToLevelOne(0);
+        (leftTile   == COL_HOME_TO_LEVEL1_BOTTOM ||
+         centerTile == COL_HOME_TO_LEVEL1_BOTTOM ||
+         rightTile  == COL_HOME_TO_LEVEL1_BOTTOM)) {
+
+        // Use custom spawn selection for the bottom Level 1 entry.
+        respawnX = LEVEL1_FROM_HOME_BOTTOM_SPAWN_X;
+        respawnY = -1;
+        respawnPreferredY = LEVEL1_FROM_HOME_BOTTOM_PREF_Y;
+        goToLevelOne(1);
         return;
     }
 
     // --------------------------------------------------
-    // LEVEL ONE -> HOME
-    // Return near the Level 1 doorway area in home.
+    // HOME -> LEVEL ONE (top/platform portal)
+    // --------------------------------------------------
+    if (currentLevel == LEVEL_HOME &&
+        (leftTile   == COL_HOME_TO_LEVEL1_TOP ||
+         centerTile == COL_HOME_TO_LEVEL1_TOP ||
+         rightTile  == COL_HOME_TO_LEVEL1_TOP)) {
+
+        // Use custom spawn selection for the upper Level 1 entry.
+        respawnX = LEVEL1_FROM_HOME_TOP_SPAWN_X;
+        respawnY = -1;
+        respawnPreferredY = LEVEL1_FROM_HOME_TOP_PREF_Y;
+        goToLevelOne(1);
+        return;
+    }
+
+    // --------------------------------------------------
+    // LEVEL ONE -> HOME (bottom/original return)
     // --------------------------------------------------
     if (currentLevel == LEVEL_ONE &&
-        (isLevel1ToHomePixel(currentLevel, leftX, probeY) ||
-         isLevel1ToHomePixel(currentLevel, centerX, probeY) ||
-         isLevel1ToHomePixel(currentLevel, rightX, probeY))) {
-        respawnX = HOME_FROM_LEVEL1_SPAWN_X;
-        respawnY = -1;   // let goToHome() compute a safe standing Y
+        (leftTile   == COL_LEVEL1_TO_HOME_BOTTOM ||
+         centerTile == COL_LEVEL1_TO_HOME_BOTTOM ||
+         rightTile  == COL_LEVEL1_TO_HOME_BOTTOM)) {
+
+        // Return to the lower/original home entry area.
+        respawnX = HOME_FROM_LEVEL1_BOTTOM_SPAWN_X;
+        respawnY = -1;
+        respawnPreferredY = HOME_FROM_LEVEL1_BOTTOM_PREF_Y;
+        goToHome(1);
+        return;
+    }
+
+    // --------------------------------------------------
+    // LEVEL ONE -> HOME (top/platform return)
+    // --------------------------------------------------
+    if (currentLevel == LEVEL_ONE &&
+        (leftTile   == COL_LEVEL1_TO_HOME_TOP ||
+         centerTile == COL_LEVEL1_TO_HOME_TOP ||
+         rightTile  == COL_LEVEL1_TO_HOME_TOP)) {
+
+        // Return to the upper platform area in home.
+        respawnX = HOME_FROM_LEVEL1_TOP_SPAWN_X;
+        respawnY = -1;
+        respawnPreferredY = HOME_FROM_LEVEL1_TOP_PREF_Y;
         goToHome(1);
         return;
     }
@@ -968,30 +1156,118 @@ static void handleLevelTransitions(void) {
     // HOME -> LEVEL TWO
     // --------------------------------------------------
     if (currentLevel == LEVEL_HOME &&
-        (isHomeToLevel2Pixel(currentLevel, leftX, probeY) ||
-         isHomeToLevel2Pixel(currentLevel, centerX, probeY) ||
-         isHomeToLevel2Pixel(currentLevel, rightX, probeY))) {
+        (leftTile   == COL_HOME_TO_LEVEL2 ||
+         centerTile == COL_HOME_TO_LEVEL2 ||
+         rightTile  == COL_HOME_TO_LEVEL2)) {
+
         goToLevelTwo(0);
         return;
     }
 
     // --------------------------------------------------
     // LEVEL TWO -> HOME
-    // Return near the Level 2 doorway area in home.
     // --------------------------------------------------
     if (currentLevel == LEVEL_TWO &&
-        (isLevel2ToHomePixel(currentLevel, leftX, probeY) ||
-        isLevel2ToHomePixel(currentLevel, centerX, probeY) ||
-        isLevel2ToHomePixel(currentLevel, rightX, probeY))) {
+        (leftTile   == COL_LEVEL2_TO_HOME ||
+         centerTile == COL_LEVEL2_TO_HOME ||
+         rightTile  == COL_LEVEL2_TO_HOME)) {
 
-        // Return to the Level 2 doorway area in homebase.
-        // X is about 30 tiles.
-        // Y is about 42 tiles up, adjusted so the player's feet land there.
+        // This return already uses an exact, hand-tuned Y.
         respawnX = HOME_FROM_LEVEL2_SPAWN_X;
         respawnY = HOME_FROM_LEVEL2_SPAWN_Y - player.height;
         goToHome(1);
         return;
     }
+}
+
+// --------------------------------------------------
+// Place the bean sprout in the home world.
+//
+// Design:
+// - It sits about 5 tiles in front of the player's default spawn.
+// - Its feet are placed on the same ground line the player stands on.
+// - If the player already has the bean sprout in inventory, keep it hidden.
+// --------------------------------------------------
+static void initBeanSprout(void) {
+    int playerGroundY;
+
+    // Put the bean sprout about 5 tiles in front of the player spawn.
+    beanSprout.x = HOME_SPAWN_X + (5 * 8);
+
+    // findStandingSpawnY() returns a TOP-Y for a player-sized body.
+    // Convert that into a ground Y, then place the bean sprout so its feet
+    // sit on that same ground.
+    playerGroundY = findStandingSpawnY(beanSprout.x, levelHeight - (8 * 8)) + PLAYER_HEIGHT;
+    beanSprout.y = playerGroundY - BEAN_SPROUT_HEIGHT;
+
+    // Hide it if it was already collected.
+    beanSprout.active = ((inventoryFlags & INVENTORY_BEAN_SPROUT) == 0);
+    beanSprout.bob = 0;
+}
+
+// Basic AABB collision helper for item pickup.
+static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh) {
+    return ax < bx + bw &&
+           ax + aw > bx &&
+           ay < by + bh &&
+           ay + ah > by;
+}
+
+// --------------------------------------------------
+// Collectibles update
+//
+// For now this only handles the bean sprout.
+// Later you can add bonemeal and water droplet here too.
+// --------------------------------------------------
+static void updateCollectibles(void) {
+    // Bean sprout only exists in homebase.
+    if (currentLevel == LEVEL_HOME && beanSprout.active) {
+        if (rectsOverlap(
+                player.x, player.y, player.width, player.height,
+                beanSprout.x, beanSprout.y, BEAN_SPROUT_WIDTH, BEAN_SPROUT_HEIGHT)) {
+
+            // Mark bean sprout as collected.
+            inventoryFlags |= INVENTORY_BEAN_SPROUT;
+
+            // Hide it from the world.
+            beanSprout.active = 0;
+        }
+    }
+}
+
+// --------------------------------------------------
+// Build HUD inventory text.
+//
+// This is scaffolding for the future inventory system.
+// When bonemeal and water droplet are implemented later, just OR in:
+//   inventoryFlags |= INVENTORY_BONEMEAL;
+//   inventoryFlags |= INVENTORY_WATER;
+// --------------------------------------------------
+static const char* getInventoryText(void) {
+    static char buffer[48];
+
+    buffer[0] = '\0';
+
+    if (inventoryFlags == 0) {
+        strcpy(buffer, "EMPTY");
+        return buffer;
+    }
+
+    if (inventoryFlags & INVENTORY_BEAN_SPROUT) {
+        strcat(buffer, "BEAN SPROUT");
+    }
+
+    if (inventoryFlags & INVENTORY_BONEMEAL) {
+        if (buffer[0] != '\0') strcat(buffer, ", ");
+        strcat(buffer, "BONEMEAL");
+    }
+
+    if (inventoryFlags & INVENTORY_WATER) {
+        if (buffer[0] != '\0') strcat(buffer, ", ");
+        strcat(buffer, "WATER");
+    }
+
+    return buffer;
 }
 
 static void drawGameplay(void) {
@@ -1008,38 +1284,77 @@ static void drawSprites(void) {
     int screenX = player.x - hOff;
     int screenY = player.y - vOff;
 
-        if (screenX < -player.width || screenX >= SCREENWIDTH ||
-            screenY < -player.height || screenY >= SCREENHEIGHT) {
-            hideSprite(0);
+    // --------------------------------------------------
+    // Draw player
+    // --------------------------------------------------
+    if (screenX < -player.width || screenX >= SCREENWIDTH ||
+        screenY < -player.height || screenY >= SCREENHEIGHT) {
+        hideSprite(OBJ_INDEX_PLAYER);
+    } else {
+        int tileBase;
+
+        // Pick the correct directional animation row.
+        if (player.direction == DIR_LEFT) {
+            tileBase = OBJ_TILE_PLAYER_LEFT + player.animFrame * PLAYER_TILES_PER_FRAME;
+        } else if (player.direction == DIR_UP) {
+            tileBase = OBJ_TILE_PLAYER_UP + player.animFrame * PLAYER_TILES_PER_FRAME;
+        } else if (player.direction == DIR_DOWN) {
+            tileBase = OBJ_TILE_PLAYER_DOWN + player.animFrame * PLAYER_TILES_PER_FRAME;
         } else {
-            int tileBase;
-
-            // Pick the correct directional animation row.
-            if (player.direction == DIR_LEFT) {
-                tileBase = OBJ_TILE_PLAYER_LEFT + player.animFrame * PLAYER_TILES_PER_FRAME;
-            } else if (player.direction == DIR_UP) {
-                tileBase = OBJ_TILE_PLAYER_UP + player.animFrame * PLAYER_TILES_PER_FRAME;
-            } else if (player.direction == DIR_DOWN) {
-                tileBase = OBJ_TILE_PLAYER_DOWN + player.animFrame * PLAYER_TILES_PER_FRAME;
-            } else {
-                tileBase = OBJ_TILE_PLAYER_RIGHT + player.animFrame * PLAYER_TILES_PER_FRAME;
-            }
-
-            // 16x32 sprite = TALL + MEDIUM
-            shadowOAM[0].attr0 = ATTR0_Y(screenY) | ATTR0_TALL | ATTR0_4BPP;
-            shadowOAM[0].attr1 = ATTR1_X(screenX) | ATTR1_MEDIUM;
-            shadowOAM[0].attr2 = ATTR2_TILEID(tileBase)
-                | ATTR2_PRIORITY(0)
-                | ATTR2_PALROW(PLAYER_PALROW);
+            tileBase = OBJ_TILE_PLAYER_RIGHT + player.animFrame * PLAYER_TILES_PER_FRAME;
         }
 
-    // Hide leftover sprite slots from the old multi-piece player.
-    hideSprite(1);
-    hideSprite(2);
-    hideSprite(3);
+        // 16x32 sprite = TALL + MEDIUM
+        shadowOAM[OBJ_INDEX_PLAYER].attr0 = ATTR0_Y(screenY) | ATTR0_TALL | ATTR0_4BPP;
+        shadowOAM[OBJ_INDEX_PLAYER].attr1 = ATTR1_X(screenX) | ATTR1_MEDIUM;
+        shadowOAM[OBJ_INDEX_PLAYER].attr2 = ATTR2_TILEID(tileBase)
+            | ATTR2_PRIORITY(0)
+            | ATTR2_PALROW(PLAYER_PALROW);
+    }
 
-    // Hide everything else unless you later add more gameplay sprites.
-    for (int i = 4; i < 128; i++) {
+    // --------------------------------------------------
+    // Draw bean sprout
+    //
+    // Since 16x24 is not a native GBA sprite size, draw it in 2 pieces:
+    //   top    = 16x16 using first 4 tiles
+    //   bottom = 16x8  using last 2 tiles
+    // --------------------------------------------------
+    if (currentLevel == LEVEL_HOME && beanSprout.active) {
+        int beanScreenX = beanSprout.x - hOff;
+        int beanScreenY = beanSprout.y - vOff;
+
+        if (beanScreenX < -BEAN_SPROUT_WIDTH || beanScreenX >= SCREENWIDTH ||
+            beanScreenY < -BEAN_SPROUT_HEIGHT || beanScreenY >= SCREENHEIGHT) {
+            hideSprite(OBJ_INDEX_BEAN_TOP);
+            hideSprite(OBJ_INDEX_BEAN_BOTTOM);
+        } else {
+            // Top 16x16 portion
+            shadowOAM[OBJ_INDEX_BEAN_TOP].attr0 =
+                ATTR0_Y(beanScreenY) | ATTR0_SQUARE | ATTR0_4BPP;
+            shadowOAM[OBJ_INDEX_BEAN_TOP].attr1 =
+                ATTR1_X(beanScreenX) | ATTR1_SMALL;
+            shadowOAM[OBJ_INDEX_BEAN_TOP].attr2 =
+                ATTR2_TILEID(OBJ_TILE_BEAN_SPROUT)
+                | ATTR2_PRIORITY(0)
+                | ATTR2_PALROW(WORLD_SPRITE_PALROW);
+
+            // Bottom 16x8 portion starts at tile offset +4
+            shadowOAM[OBJ_INDEX_BEAN_BOTTOM].attr0 =
+                ATTR0_Y(beanScreenY + 16) | ATTR0_WIDE | ATTR0_4BPP;
+            shadowOAM[OBJ_INDEX_BEAN_BOTTOM].attr1 =
+                ATTR1_X(beanScreenX) | ATTR1_TINY;
+            shadowOAM[OBJ_INDEX_BEAN_BOTTOM].attr2 =
+                ATTR2_TILEID(OBJ_TILE_BEAN_SPROUT + 4)
+                | ATTR2_PRIORITY(0)
+                | ATTR2_PALROW(WORLD_SPRITE_PALROW);
+        }
+    } else {
+        hideSprite(OBJ_INDEX_BEAN_TOP);
+        hideSprite(OBJ_INDEX_BEAN_BOTTOM);
+    }
+
+    // Hide everything else until you add more sprites later.
+    for (int i = 3; i < 128; i++) {
         hideSprite(i);
     }
 }
@@ -1059,9 +1374,9 @@ static void drawHudText(void) {
         putText(1, 1, "LEVEL 2");
     }
 
-    putText(1, 3, "UP JUMP");
-    putText(1, 5, "A+VINE CLIMB");
-    putText(1, 7, "START PAUSE");
+    // Inventory HUD
+    putText(1, 3, "INVENTORY:");
+    putText(1, 5, getInventoryText());
 }
 
 static void drawMenuScreen(const char* title, const char* line1, const char* line2, const char* line3) {

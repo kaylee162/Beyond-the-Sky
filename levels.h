@@ -46,10 +46,12 @@
 #define COL_CANNOT_GO               1
 #define COL_DEATH                   2
 #define COL_CLIMB                   3
-#define COL_HOME_TO_LEVEL1          4
-#define COL_LEVEL1_TO_HOME          5
-#define COL_HOME_TO_LEVEL2          6
-#define COL_LEVEL2_TO_HOME          7
+#define COL_HOME_TO_LEVEL1_BOTTOM   4
+#define COL_HOME_TO_LEVEL1_TOP      5
+#define COL_LEVEL1_TO_HOME_BOTTOM   6
+#define COL_LEVEL1_TO_HOME_TOP      7
+#define COL_HOME_TO_LEVEL2          8
+#define COL_LEVEL2_TO_HOME          9
 
 // ======================================================
 //                    SCREENBLOCKS
