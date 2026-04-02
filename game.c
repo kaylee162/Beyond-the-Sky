@@ -3,6 +3,10 @@
 #include "tileset.h"
 #include "spriteSheet.h"
 
+// ======================================================
+//                FILE-SCOPE GAME STATE
+// ======================================================
+
 static GameState state;
 static GameState gameplayStateBeforePause;
 static int currentLevel;
@@ -12,7 +16,6 @@ static int levelHeight;
 static Player player;
 
 // Bean sprout collectible in the home world.
-// Reusing ResourceItem is fine here because it already stores x/y/active.
 static ResourceItem beanSprout;
 
 static int hOff;
@@ -21,10 +24,6 @@ static int cloudHOff;
 static int frameCounter;
 
 // Inventory bitmask.
-// Example:
-//   INVENTORY_BEAN_SPROUT
-//   INVENTORY_BONEMEAL
-//   INVENTORY_WATER
 static int inventoryFlags;
 
 static int instantGrowCheat;
@@ -91,6 +90,7 @@ static int tryStartLadderTopExit(void);
 static int isStandingOnSolid(void);
 static int findStandingSpawnY(int spawnX, int preferredTopY);
 static int touchesHazard(void);
+static int touchesWinTile(void);
 static void handleLevelTransitions(void);
 static void putText(int col, int row, const char* str);
 static void clearHud(void);
@@ -98,11 +98,6 @@ static void clearHud(void);
 // --------------------------------------------------
 // Copy a rectangular block of 8x8 OBJ tiles out of the full exported
 // sprite sheet and repack it into a contiguous chunk in OBJ VRAM.
-//
-// Why this matters:
-// In 1D OBJ mapping, every hardware sprite expects its tiles to be laid
-// out contiguously in OBJ memory. A large exported sheet does not store
-// animation frames that way, so we manually repack each player piece.
 // --------------------------------------------------
 static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheetWidthTiles,
     int srcTileX, int srcTileY, int blockWidthTiles, int blockHeightTiles, int dstTileIndex) {
@@ -122,13 +117,17 @@ static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheet
     }
 }
 
+// ======================================================
+//                ASSET LOADING AND SETUP
+// ======================================================
 static void initBgAssets(void) {
+    // Load shared background art and reserve a palette row for font text.
     // Load the tileset palette and tiles for the gameplay backgrounds.
     DMANow(3, (void*)tilesetPal, BG_PALETTE, tilesetPalLen / 2);
     DMANow(3, (void*)tilesetTiles, CHARBLOCK[1].tileimg, tilesetTilesLen / 2);
 
     // Palette index 0 is the global BG backdrop color.
-    // Because your tilemaps now use index 0 as transparent, this is the sky
+    // Because the tilemaps now use index 0 as transparent, this is the sky
     // color that will show through anywhere index 0 appears.
     BG_PALETTE[0] = SKY_COLOR;
 
@@ -139,14 +138,11 @@ static void initBgAssets(void) {
 }
 
 static void initObjAssets(void) {
+    // Load sprite palettes/tiles into OBJ memory and repack animation frames.
     // --------------------------------------------------
     // Load OBJ palette rows explicitly:
     //   palette row 0 = player
     //   palette row 1 = all other sprites
-    //
-    // Assumes:
-    //   spriteSheetPal[0..15]   = player palette
-    //   spriteSheetPal[16..31]  = non-player palette
     // --------------------------------------------------
     DMANow(3, (void*)spriteSheetPal,      &SPRITE_PAL[16 * PLAYER_PALROW], 16);
     DMANow(3, (void*)(spriteSheetPal + 16), &SPRITE_PAL[16 * WORLD_SPRITE_PALROW], 16);
@@ -158,7 +154,6 @@ static void initObjAssets(void) {
     // Copy all 4 directions x 4 frames from the exported sheet.
     //
     // Each frame is 2x4 tiles (16x32 pixels).
-    // Rows are stacked directly with no empty space between them.
     //
     // Right row starts at tile y = 0
     // Left  row starts at tile y = 4
@@ -213,7 +208,7 @@ static void initObjAssets(void) {
     //   2 tiles wide x 3 tiles tall
     //
     // This copies the 6 bean sprout tiles contiguously into OBJ VRAM.
-    // We'll draw them as:
+    // draw them as:
     //   top    16x16 using tiles 0..3 of this block
     //   bottom 16x8  using tiles 4..5 of this block
     // --------------------------------------------------
@@ -225,7 +220,11 @@ static void initObjAssets(void) {
     );
 }
 
+// ======================================================
+//                GAME LIFECYCLE ENTRY POINTS
+// ======================================================
 void initGame(void) {
+    // Reset game-wide variables, load the initial level data, and enter the title screen.
     initGraphics();
 
     frameCounter = 0;
@@ -245,6 +244,7 @@ void initGame(void) {
 }
 
 void updateGame(void) {
+    // Run exactly one update function based on the active game state.
     frameCounter++;
 
     switch (state) {
@@ -276,6 +276,7 @@ void updateGame(void) {
 }
 
 void drawGame(void) {
+    // Draw the current screen without changing any gameplay state.
     switch (state) {
         case STATE_START:
             clearHud();
@@ -309,7 +310,11 @@ void drawGame(void) {
     }
 }
 
+// ======================================================
+//                DISPLAY MODE AND BACKGROUND SETUP
+// ======================================================
 static void initGraphics(void) {
+    // Initialize Mode 0, background layers, font data, and sprite assets.
     initMode0();
 
     // Start with full gameplay layers enabled by default.
@@ -336,7 +341,7 @@ static void initGraphics(void) {
 }
 
 static void enableGameplayDisplay(void) {
-    // Gameplay needs:
+    // Turn on the background and sprite layers used during active gameplay.
     // BG0 = HUD text
     // BG1 = background tilemap
     // BG2 = foreground tilemap
@@ -346,6 +351,7 @@ static void enableGameplayDisplay(void) {
 }
 
 static void enableMenuDisplay(void) {
+    // Show only the text layer for menu-style screens and hide all sprites.
     // Menu/state screens only need BG0 text.
     // The blue backdrop color will fill the rest of the screen.
     REG_DISPCTL = MODE(0) | BG_ENABLE(0);
@@ -357,7 +363,11 @@ static void enableMenuDisplay(void) {
     hideSprites();
 }
 
+// ======================================================
+//                STATE / SCREEN TRANSITIONS
+// ======================================================
 static void goToStart(void) {
+    // Switch to the title screen and reset the visible menu text.
     state = STATE_START;
     enableMenuDisplay();
     clearHud();
@@ -365,6 +375,7 @@ static void goToStart(void) {
 }
 
 static void goToInstructions(void) {
+    // Switch to the instructions screen.
     state = STATE_INSTRUCTIONS;
     enableMenuDisplay();
     clearHud();
@@ -372,6 +383,7 @@ static void goToInstructions(void) {
 }
 
 static void goToHome(int respawn) {
+    // Load the home map, position the player, and reset moment-to-moment movement state.
     state = STATE_HOME;
     enableGameplayDisplay();
     currentLevel = LEVEL_HOME;
@@ -428,6 +440,7 @@ static void goToHome(int respawn) {
 }
 
 static void goToLevelOne(int respawn) {
+    // Load Level 1 and place the player at either a default or transition-based spawn.
     state = STATE_LEVEL1;
     enableGameplayDisplay();
     currentLevel = LEVEL_ONE;
@@ -482,6 +495,7 @@ static void goToLevelOne(int respawn) {
 }
 
 static void goToLevelTwo(int respawn) {
+    // Load Level 2 and place the player near its intended entry point.
     state = STATE_LEVEL2;
     enableGameplayDisplay();
     currentLevel = LEVEL_TWO;
@@ -532,6 +546,7 @@ static void goToLevelTwo(int respawn) {
 }
 
 static void goToPause(void) {
+    // Remember the gameplay state we came from, then open the pause screen.
     gameplayStateBeforePause = state;
     state = STATE_PAUSE;
     enableMenuDisplay();
@@ -540,6 +555,7 @@ static void goToPause(void) {
 }
 
 static void goToWin(void) {
+    // Switch to the win screen and summarize the cheat state used during the run.
     state = STATE_WIN;
     enableMenuDisplay();
     clearHud();
@@ -547,6 +563,7 @@ static void goToWin(void) {
 }
 
 static void goToLose(int levelToReturnTo) {
+    // Switch to the lose screen and remember which level should be reloaded on respawn.
     loseReturnLevel = levelToReturnTo;
     state = STATE_LOSE;
     enableMenuDisplay();
@@ -555,6 +572,7 @@ static void goToLose(int levelToReturnTo) {
 }
 
 static void respawnIntoCurrentLevel(void) {
+    // Reload the level stored by the lose screen and respawn the player there.
     if (loseReturnLevel == LEVEL_HOME) {
         goToHome(1);
     } else if (loseReturnLevel == LEVEL_ONE) {
@@ -564,13 +582,18 @@ static void respawnIntoCurrentLevel(void) {
     }
 }
 
+// ======================================================
+//                PER-STATE UPDATE FUNCTIONS
+// ======================================================
 static void updateStart(void) {
+    // Title screen input: continue to instructions.
     if (BUTTON_PRESSED(BUTTON_START) || BUTTON_PRESSED(BUTTON_A)) {
         goToInstructions();
     }
 }
 
 static void updateInstructions(void) {
+    // Instructions screen input: go back to title or continue into gameplay.
     if (BUTTON_PRESSED(BUTTON_B)) {
         goToStart();
     }
@@ -580,18 +603,22 @@ static void updateInstructions(void) {
 }
 
 static void updateHome(void) {
+    // Home currently uses the shared gameplay update path.
     updateGameplayCommon();
 }
 
 static void updateLevelOne(void) {
+    // Level 1 currently uses the shared gameplay update path.
     updateGameplayCommon();
 }
 
 static void updateLevelTwo(void) {
+    // Level 2 currently uses the shared gameplay update path.
     updateGameplayCommon();
 }
 
 static void updatePause(void) {
+    // Pause input: resume gameplay or return to the title screen.
     if (BUTTON_PRESSED(BUTTON_START)) {
         state = gameplayStateBeforePause;
         enableGameplayDisplay();
@@ -604,12 +631,14 @@ static void updatePause(void) {
 }
 
 static void updateLose(void) {
+    // Lose screen input: respawn into the stored level.
     if (BUTTON_PRESSED(BUTTON_START) || BUTTON_PRESSED(BUTTON_A)) {
         respawnIntoCurrentLevel();
     }
 }
 
 static void updateWin(void) {
+    // Win screen input: clear run progress and return to the title screen.
     if (BUTTON_PRESSED(BUTTON_START)) {
         // Fresh run after winning.
         inventoryFlags = 0;
@@ -617,7 +646,11 @@ static void updateWin(void) {
     }
 }
 
+// ======================================================
+//                CORE GAMEPLAY UPDATE HELPERS
+// ======================================================
 static void updateGameplayCommon(void) {
+    // Handle the shared gameplay loop used by all playable levels.
     // START pauses the game.
     if (BUTTON_PRESSED(BUTTON_START)) {
         goToPause();
@@ -644,13 +677,21 @@ static void updateGameplayCommon(void) {
     // Update camera after movement / transitions
     updateCamera();
 
+    // Win check
+    if (touchesWinTile()) {
+        goToWin();
+        return;
+    }
+
     // Hazard / death check
     if (touchesHazard() || player.y > levelHeight + 16) {
         goToLose(currentLevel);
+        return;
     }
 }
 
 static void updatePlayerAnimation(void) {
+    // Advance or reset the player animation based on actual movement this frame.
     // When the player is not actively walking/climbing,
     // return to the idle frame.
     if (!player.isMoving) {
@@ -669,6 +710,7 @@ static void updatePlayerAnimation(void) {
 }
 
 static void updatePlayerMovement(void) {
+    // Resolve player input, climbing, jumping, gravity, and collision one pixel at a time.
     int dx = 0;
     int step;
     int remaining;
@@ -887,6 +929,7 @@ static void updatePlayerMovement(void) {
 }
 
 static void updateCamera(void) {
+    // Center the camera on the player, then clamp it to the map bounds.
     hOff = player.x + (player.width / 2) - (SCREENWIDTH / 2);
     vOff = player.y + (player.height / 2) - (SCREENHEIGHT / 2);
 
@@ -913,7 +956,11 @@ static void updateCamera(void) {
     cloudHOff = hOff / 3;
 }
 
+// ======================================================
+//                COLLISION / WORLD QUERY HELPERS
+// ======================================================
 static int canMoveTo(int newX, int newY) {
+    // Test the four corners of the player hitbox against blocked collision pixels.
     return !isBlockedPixel(currentLevel, newX, newY)
         && !isBlockedPixel(currentLevel, newX + player.width - 1, newY)
         && !isBlockedPixel(currentLevel, newX, newY + player.height - 1)
@@ -921,6 +968,7 @@ static int canMoveTo(int newX, int newY) {
 }
 
 static int findStandingSpawnY(int spawnX, int preferredTopY) {
+    // Find the nearest open Y position where the player can stand on solid ground.
     int y;
     int clampedX;
     int clampedPreferredY;
@@ -962,10 +1010,12 @@ static int findStandingSpawnY(int spawnX, int preferredTopY) {
 }
 
 static int onClimbTile(void) {
+    // Check climb overlap using the player's current position.
     return onClimbTileAt(player.x, player.y);
 }
 
 static int onClimbTileAt(int x, int y) {
+    // Check several points down the player body for ladder or vine collision.
     int centerX = x + (player.width / 2);
 
     // Sample multiple points vertically through the player's body.
@@ -985,9 +1035,9 @@ static int onClimbTileAt(int x, int y) {
 }
 
 // True when the player's lower body is still on the ladder / vine,
-// but the upper body has already cleared it.
-// This is the exact "I'm at the top and should get off now" case.
+// but the upper body has already cleared it
 static int isAtTopOfClimb(int x, int y) {
+    // Detect the specific case where the player has reached the top of a climbable area.
     int centerX = x + (player.width / 2);
 
     int headY  = y + 2;
@@ -1007,7 +1057,7 @@ static int isAtTopOfClimb(int x, int y) {
 // Detect when the player is at the top of the ladder and launch them upward
 // so they can land on the platform above instead of getting stuck.
 //
-// Strategy:
+// Strat:
 //   1. Scan upward pixel-by-pixel until we find a Y where the player body
 //      is FULLY clear of all climb tiles (not just open space).
 //   2. Teleport the player to that Y so the next frame cannot re-engage
@@ -1015,16 +1065,15 @@ static int isAtTopOfClimb(int x, int y) {
 //   3. Apply a small upward velocity so they arc cleanly onto the ledge.
 //
 // If no fully-clear position exists within the scan range (e.g. solid
-// ceiling directly above), we still leave climb mode and apply the boost
-// so the player is not permanently trapped.
+// ceiling directly above), still leave climb mode and apply the boost
+// so that the player is not permanently trapped.
 static int tryStartLadderTopExit(void) {
+    // Pop the player upward off the ladder so they can step onto the platform above.
     int pop;
 
     // Scan upward. Try to find a spot where:
     //   (a) the position is walkable (no solid collision), AND
     //   (b) the player body no longer overlaps any climb tile.
-    // Condition (b) is the key addition — without it the very next frame
-    // sees onClimbTile()==true and re-enters climb mode immediately.
     for (pop = 1; pop <= 10; pop++) {
         int testY = player.y - pop;
 
@@ -1051,6 +1100,7 @@ static int tryStartLadderTopExit(void) {
 }
 
 static int isStandingOnSolid(void) {
+    // Sample the player's feet to decide whether they are standing on solid ground.
     int leftFootX  = player.x + 2;
     int rightFootX = player.x + player.width - 3;
     int belowY     = player.y + player.height;
@@ -1064,6 +1114,7 @@ static int isStandingOnSolid(void) {
 }
 
 static int touchesHazard(void) {
+    // Sample the lower body against hazard tiles.
     int leftFootX  = player.x + 2;
     int rightFootX = player.x + player.width - 3;
     int footY      = player.y + player.height - 1;
@@ -1075,7 +1126,19 @@ static int touchesHazard(void) {
         || isHazardPixel(currentLevel, midX, midY);
 }
 
+static int touchesWinTile(void) {
+    int leftFootX  = player.x + 2;
+    int centerX    = player.x + (player.width / 2);
+    int rightFootX = player.x + player.width - 3;
+    int footY      = player.y + player.height - 1;
+
+    return collisionAtPixel(currentLevel, leftFootX, footY) == COL_WIN
+        || collisionAtPixel(currentLevel, centerX, footY) == COL_WIN
+        || collisionAtPixel(currentLevel, rightFootX, footY) == COL_WIN;
+}
+
 static void handleLevelTransitions(void) {
+    // Check collision-map transition markers under the player and swap maps when needed.
     // Sample the player's feet area for transition tiles.
     // Checking left / center / right is more reliable than a single point.
     int leftX   = player.x + 2;
@@ -1180,15 +1243,11 @@ static void handleLevelTransitions(void) {
     }
 }
 
-// --------------------------------------------------
-// Place the bean sprout in the home world.
-//
-// Design:
-// - It sits about 5 tiles in front of the player's default spawn.
-// - Its feet are placed on the same ground line the player stands on.
-// - If the player already has the bean sprout in inventory, keep it hidden.
-// --------------------------------------------------
+// ======================================================
+//                COLLECTIBLES / INVENTORY
+// ======================================================
 static void initBeanSprout(void) {
+    // Place the bean sprout collectible in home and hide it if it was already collected.
     int playerGroundY;
 
     // Put the bean sprout about 5 tiles in front of the player spawn.
@@ -1196,7 +1255,7 @@ static void initBeanSprout(void) {
 
     // findStandingSpawnY() returns a TOP-Y for a player-sized body.
     // Convert that into a ground Y, then place the bean sprout so its feet
-    // sit on that same ground.
+    // sit on that same ground
     playerGroundY = findStandingSpawnY(beanSprout.x, levelHeight - (8 * 8)) + PLAYER_HEIGHT;
     beanSprout.y = playerGroundY - BEAN_SPROUT_HEIGHT;
 
@@ -1207,6 +1266,7 @@ static void initBeanSprout(void) {
 
 // Basic AABB collision helper for item pickup.
 static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh) {
+    // Simple axis-aligned bounding box overlap test for pickups.
     return ax < bx + bw &&
            ax + aw > bx &&
            ay < by + bh &&
@@ -1217,9 +1277,10 @@ static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, 
 // Collectibles update
 //
 // For now this only handles the bean sprout.
-// Later you can add bonemeal and water droplet here too.
+// Later add bonemeal and water droplet HERE
 // --------------------------------------------------
 static void updateCollectibles(void) {
+    // Handle item pickup logic for collectibles currently active in the world.
     // Bean sprout only exists in homebase.
     if (currentLevel == LEVEL_HOME && beanSprout.active) {
         if (rectsOverlap(
@@ -1244,6 +1305,7 @@ static void updateCollectibles(void) {
 //   inventoryFlags |= INVENTORY_WATER;
 // --------------------------------------------------
 static const char* getInventoryText(void) {
+    // Build the HUD string that lists the items currently in the inventory bitmask.
     static char buffer[48];
 
     buffer[0] = '\0';
@@ -1270,7 +1332,11 @@ static const char* getInventoryText(void) {
     return buffer;
 }
 
+// ======================================================
+//                RENDERING / SPRITE DRAWING
+// ======================================================
 static void drawGameplay(void) {
+    // Refresh HUD text, scroll the backgrounds, and draw all visible sprites.
     clearHud();
     drawHudText();
 
@@ -1281,6 +1347,7 @@ static void drawGameplay(void) {
 }
 
 static void drawSprites(void) {
+    // Write the current frame's sprite attributes into shadow OAM.
     int screenX = player.x - hOff;
     int screenY = player.y - vOff;
 
@@ -1353,19 +1420,24 @@ static void drawSprites(void) {
         hideSprite(OBJ_INDEX_BEAN_BOTTOM);
     }
 
-    // Hide everything else until you add more sprites later.
+    // Hide everything else
     for (int i = 3; i < 128; i++) {
         hideSprite(i);
     }
 }
 
 static void hideSprite(int index) {
+    // Hide one sprite entry in shadow OAM.
     shadowOAM[index].attr0 = ATTR0_HIDE;
     shadowOAM[index].attr1 = 0;
     shadowOAM[index].attr2 = 0;
 }
 
+// ======================================================
+//                HUD / TEXT DRAWING
+// ======================================================
 static void drawHudText(void) {
+    // Draw the current level label and inventory readout on the HUD layer.
     if (currentLevel == LEVEL_HOME) {
         putText(1, 1, "HOMEBASE");
     } else if (currentLevel == LEVEL_ONE) {
@@ -1380,9 +1452,8 @@ static void drawHudText(void) {
 }
 
 static void drawMenuScreen(const char* title, const char* line1, const char* line2, const char* line3) {
+    // Draw a simple four-line text menu layout on BG0.
     // This function should only DRAW the menu screen.
-    // It must never change game state, otherwise the title / instructions
-    // screens constantly stomp each other and input appears broken.
     setBackgroundOffset(1, 0, 0);
     setBackgroundOffset(2, 0, 0);
     putText(6, 5, title);
@@ -1392,6 +1463,7 @@ static void drawMenuScreen(const char* title, const char* line1, const char* lin
 }
 
 static void drawPauseScreen(void) {
+    // Draw pause text and hide gameplay sprites while paused.
     clearHud();
     putText(11, 7, "PAUSED");
     putText(6, 11, "START TO RESUME");
@@ -1400,9 +1472,11 @@ static void drawPauseScreen(void) {
 }
 
 static void clearHud(void) {
+    // Clear the HUD text map so the next screen can redraw cleanly.
     fontClearMap(HUD_SCREENBLOCK, 0);
 }
 
 static void putText(int col, int row, const char* str) {
+    // Convenience wrapper for drawing a string into the HUD screenblock.
     fontDrawString(HUD_SCREENBLOCK, col, row, str);
 }

@@ -101,7 +101,7 @@ int getLevelPixelHeight(int level) {
 //   level two = 512 x 256
 //
 // That means each entry in the bitmap already corresponds to ONE
-// world pixel. We should NOT divide x/y by 8 here.
+// world pixel.
 //
 static u8 collisionByteFromBitmap(const unsigned short* bitmap, int pixelWidth, int pixelHeight, int x, int y) {
     const unsigned char* bytes = (const unsigned char*)bitmap;
@@ -122,11 +122,9 @@ u8 collisionAtPixel(int level, int x, int y) {
         return COL_CANNOT_GO;
     }
 
-    // IMPORTANT:
     // The collision maps are full-size 8bpp bitmaps at world-pixel size.
-    // That means x/y should be used directly.
-    // Do NOT divide by 8 here.
 
+    // HomeBase
     if (level == LEVEL_HOME) {
         return collisionByteFromBitmap(
             homebase_collisionMapBitmap,
@@ -137,6 +135,7 @@ u8 collisionAtPixel(int level, int x, int y) {
         );
     }
 
+    // Level One
     if (level == LEVEL_ONE) {
         return collisionByteFromBitmap(
             levelone_collisionMapBitmap,
@@ -147,6 +146,7 @@ u8 collisionAtPixel(int level, int x, int y) {
         );
     }
 
+    // Level Two
     return collisionByteFromBitmap(
         leveltwo_collisionMapBitmap,
         LEVEL2_PIXEL_W,

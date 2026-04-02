@@ -52,6 +52,7 @@
 #define COL_LEVEL1_TO_HOME_TOP      7
 #define COL_HOME_TO_LEVEL2          8
 #define COL_LEVEL2_TO_HOME          9
+#define COL_WIN                    10  // not implemented yet but will be
 
 // ======================================================
 //                    SCREENBLOCKS
