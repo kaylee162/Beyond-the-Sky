@@ -2,6 +2,7 @@
 #include "game.h"
 #include "tileset.h"
 #include "spriteSheet.h"
+#include "homebase_foreground.h"
 
 // ======================================================
 //                FILE-SCOPE GAME STATE
@@ -28,6 +29,13 @@ static int frameCounter;
 // Inventory bitmask.
 static int inventoryFlags;
 
+// Beanstalk growth progression:
+//   0 = empty farmland
+//   1 = bean sprout deposited
+//   2 = bonemeal deposited (partial growth)
+//   3 = water deposited (full growth)
+static int beanstalkGrowthStage;
+
 static int respawnX;
 static int respawnY;
 static int respawnPreferredY;
@@ -37,10 +45,6 @@ static int loseReturnLevel;
 int cheatModeEnabled;
 int instantGrowCheat;
 int invincibilityCheat;
-
-// Small upward launch when the player reaches the top of a ladder / vine.
-// This helps them "hop" onto the platform instead of getting stuck.
-#define LADDER_EXIT_BOOST  -4
 
 // --------------------------------------------------
 // FORWARD DECLARATIONS
@@ -88,6 +92,14 @@ static void updateCollectibles(void);
 static void updateCollectibleAnimations(void);
 static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh);
 static const char* getInventoryText(void);
+static int getEffectiveBeanstalkGrowthStage(void);
+static unsigned short getHomeForegroundSourceEntry(int tileX, int tileY);
+static void setHomeForegroundTileEntry(int tileX, int tileY, unsigned short entry);
+static void drawHomeTileBlockFromTileset(int mapTileX, int mapTileY, int srcTileX, int srcTileY, int widthTiles, int heightTiles);
+static void refreshHomeBeanstalkVisuals(void);
+static int isPlayerAtFarmland(void);
+static void tryDepositResource(void);
+static int canUseCurrentClimbPixel(int x, int y);
 
 // Collision / interaction helpers
 static int canMoveTo(int newX, int newY);
@@ -281,6 +293,7 @@ void initGame(void) {
 
     frameCounter = 0;
     inventoryFlags = 0;
+    beanstalkGrowthStage = 0;
     instantGrowCheat = 0;
     invincibilityCheat = 0;
     cheatModeEnabled = 0;
@@ -485,6 +498,9 @@ static void goToHome(int respawn) {
     // If the player already collected it, initBeanSprout() will keep it hidden.
     initBeanSprout();
 
+    // Reapply the dynamic farmland / beanstalk visuals every time home loads.
+    refreshHomeBeanstalkVisuals();
+
     hOff = 0;
     vOff = levelHeight - SCREENHEIGHT;
     if (vOff < 0) vOff = 0;
@@ -662,6 +678,7 @@ static void updateInstructions(void) {
     if (BUTTON_PRESSED(BUTTON_START) || BUTTON_PRESSED(BUTTON_A)) {
         // Start a completely fresh run from home.
         inventoryFlags = 0;
+        beanstalkGrowthStage = 0;
         instantGrowCheat = 0;
         invincibilityCheat = 0;   // <-- ADD THIS LINE
         goToHome(0);
@@ -708,6 +725,7 @@ static void updateWin(void) {
     if (BUTTON_PRESSED(BUTTON_START)) {
         // Fresh run after winning.
         inventoryFlags = 0;
+        beanstalkGrowthStage = 0;
         instantGrowCheat = 0;
         invincibilityCheat = 0; 
         goToStart();
@@ -728,6 +746,12 @@ static void updateGameplayCommon(void) {
     // Optional cheat toggle: instant grow
     if (BUTTON_PRESSED(BUTTON_SELECT) && BUTTON_HELD(BUTTON_UP)) {
         instantGrowCheat = !instantGrowCheat;
+
+        // The grow cheat temporarily forces the beanstalk to its final stage.
+        // Refresh the home visuals immediately if the player is currently there.
+        if (currentLevel == LEVEL_HOME) {
+            refreshHomeBeanstalkVisuals();
+        }
     }
 
     // Toggle cheat mode on/off with SELECT + B.
@@ -744,6 +768,9 @@ static void updateGameplayCommon(void) {
 
     // Check item pickups after movement.
     updateCollectibles();
+
+    // Allow B to deposit the next required resource while standing on the farmland.
+    tryDepositResource();
 
     // Animate any active world collectibles.
     updateCollectibleAnimations();
@@ -1046,6 +1073,250 @@ static void updateCamera(void) {
     cloudHOff = hOff / 3;
 }
 
+
+// ======================================================
+//        HOME BEANSTALK / FARMLAND DYNAMIC VISUALS
+// ======================================================
+
+// Return the active beanstalk growth stage.
+// The grow cheat temporarily forces the visuals and climb logic to full growth.
+static int getEffectiveBeanstalkGrowthStage(void) {
+    if (instantGrowCheat) {
+        return 3;
+    }
+
+    return beanstalkGrowthStage;
+}
+
+// Read a tile entry out of the original exported home foreground map.
+static unsigned short getHomeForegroundSourceEntry(int tileX, int tileY) {
+    if (tileX < 0 || tileX >= HOME_MAP_W || tileY < 0 || tileY >= HOME_MAP_H) {
+        return 0;
+    }
+
+    // Home is a 32x64 tall map:
+    // rows 0-31 live in screenblock A and rows 32-63 live in screenblock B.
+    if (tileY < 32) {
+        return homebase_foregroundMap[tileY * 32 + tileX];
+    }
+
+    return homebase_foregroundMap[1024 + (tileY - 32) * 32 + tileX];
+}
+
+// Write one tile entry directly into the live home foreground screenblocks.
+static void setHomeForegroundTileEntry(int tileX, int tileY, unsigned short entry) {
+    volatile unsigned short* targetMap;
+    int localY;
+
+    if (tileX < 0 || tileX >= HOME_MAP_W || tileY < 0 || tileY >= HOME_MAP_H) {
+        return;
+    }
+
+    if (tileY < 32) {
+        targetMap = SCREENBLOCK[BG_FRONT_SB_A].tilemap;
+        localY = tileY;
+    } else {
+        targetMap = SCREENBLOCK[BG_FRONT_SB_B].tilemap;
+        localY = tileY - 32;
+    }
+
+    targetMap[localY * 32 + tileX] = entry;
+}
+
+// Draw a rectangular block of tile IDs from a fixed source area in the tileset.
+static void drawHomeTileBlockFromTileset(int mapTileX, int mapTileY, int srcTileX, int srcTileY, int widthTiles, int heightTiles) {
+    int row;
+    int col;
+
+    for (row = 0; row < heightTiles; row++) {
+        for (col = 0; col < widthTiles; col++) {
+            unsigned short tileId = (unsigned short)(((srcTileY + row) * 32) + (srcTileX + col));
+            setHomeForegroundTileEntry(mapTileX + col, mapTileY + row, tileId);
+        }
+    }
+}
+
+// Rebuild the visible home beanstalk and farmland art from the current growth stage.
+static void refreshHomeBeanstalkVisuals(void) {
+    int stage;
+    int row;
+    int col;
+
+    // These edits only apply to the home foreground map.
+    if (currentLevel != LEVEL_HOME) {
+        return;
+    }
+
+    stage = getEffectiveBeanstalkGrowthStage();
+
+    // --------------------------------------------------
+    // Hide or reveal the tall beanstalk region.
+    //
+    // Stage 0 = no tall stalk
+    // Stage 1 = no tall stalk yet, only seed farmland
+    // Stage 2 = partial stalk visible
+    // Stage 3 = full stalk visible
+    // --------------------------------------------------
+    for (row = HOME_BEANSTALK_TILE_TOP; row <= HOME_BEANSTALK_TILE_BOTTOM; row++) {
+        for (col = HOME_BEANSTALK_TILE_LEFT; col <= HOME_BEANSTALK_TILE_RIGHT; col++) {
+            if (stage >= 3) {
+                // Full growth: restore the original home foreground beanstalk.
+                setHomeForegroundTileEntry(col, row, getHomeForegroundSourceEntry(col, row));
+            } else if (stage == 2 && row >= PARTIAL_BEANSTALK_VISIBLE_TOP_TILE) {
+                // Partial growth: only reveal the lower visible section.
+                setHomeForegroundTileEntry(col, row, getHomeForegroundSourceEntry(col, row));
+            } else {
+                // Hidden rows become blank / transparent.
+                setHomeForegroundTileEntry(col, row, TRANSPARENT_TILE_ID);
+            }
+        }
+    }
+
+    // --------------------------------------------------
+    // Farmland states
+    //
+    // Stage 0:
+    //   regular farmland (0, 20), 8x5
+    //
+    // Stage 1:
+    //   seed farmland (8, 20), 8x5
+    //
+    // Stage 2/3:
+    //   start from seed farmland (8, 20), 8x5
+    //   then overlay only the TOP 2 rows with the beanstalk base tiles
+    // --------------------------------------------------
+    if (stage == 0) {
+        // Regular farmland before anything is planted.
+        drawHomeTileBlockFromTileset(
+            FARMLAND_TILE_X,
+            FARMLAND_TILE_Y,
+            EMPTY_FARMLAND_SRC_TILE_X,
+            FARMLAND_SRC_TILE_Y,
+            EMPTY_FARMLAND_SRC_W,
+            EMPTY_FARMLAND_SRC_H
+        );
+    } else {
+        // Stage 1/2/3 always begin with the full 8x5 seed farmland.
+        drawHomeTileBlockFromTileset(
+            FARMLAND_TILE_X,
+            FARMLAND_TILE_Y,
+            PLANTED_FARMLAND_SRC_TILE_X,
+            FARMLAND_SRC_TILE_Y,
+            EMPTY_FARMLAND_SRC_W,
+            EMPTY_FARMLAND_SRC_H
+        );
+
+        // Once bonemeal is deposited, add the beanstalk/farmland transition.
+        // These source tiles are only 8x2, so only stamp the TOP 2 rows
+        // of the 8x5 farmland patch.
+        if (stage >= 2) {
+            drawHomeTileBlockFromTileset(
+                FARMLAND_TILE_X,
+                FARMLAND_TILE_Y,
+                GROWN_FARMLAND_SRC_X,
+                GROWN_FARMLAND_SRC_Y,
+                GROWN_FARMLAND_SRC_W,
+                GROWN_FARMLAND_SRC_H
+            );
+        }
+    }
+
+    // --------------------------------------------------
+    // Stage 2 only:
+    // Stamp the decorative half-grown beanstalk top so the stalk does not
+    // end in a hard straight cutoff.
+    // --------------------------------------------------
+    if (stage == 2) {
+        drawHomeTileBlockFromTileset(
+            PARTIAL_TOP_DEST_X,
+            PARTIAL_TOP_DEST_Y,
+            PARTIAL_TOP_SRC_X,
+            PARTIAL_TOP_SRC_Y,
+            PARTIAL_TOP_WIDTH,
+            PARTIAL_TOP_HEIGHT
+        );
+    }
+}
+
+// True when the player is overlapping the 8x5 farmland patch in home.
+static int isPlayerAtFarmland(void) {
+    return currentLevel == LEVEL_HOME
+        && rectsOverlap(
+            player.x, player.y, player.width, player.height,
+            FARMLAND_TILE_X * 8, FARMLAND_TILE_Y * 8,
+            FARMLAND_WIDTH_TILES * 8, FARMLAND_HEIGHT_TILES * 8
+        );
+}
+
+// Handle B-button deposits at the farmland.
+// Deposit order is fixed:
+//   bean sprout -> bonemeal -> water
+static void tryDepositResource(void) {
+    if (currentLevel != LEVEL_HOME) {
+        return;
+    }
+
+    if (!BUTTON_PRESSED(BUTTON_B) || BUTTON_HELD(BUTTON_SELECT)) {
+        return;
+    }
+
+    if (!isPlayerAtFarmland()) {
+        return;
+    }
+
+    // Nothing happens if the inventory is empty or the player has the wrong item.
+    if (beanstalkGrowthStage == 0) {
+        if (inventoryFlags & INVENTORY_BEAN_SPROUT) {
+            inventoryFlags &= ~INVENTORY_BEAN_SPROUT;
+            beanstalkGrowthStage = 1;
+            refreshHomeBeanstalkVisuals();
+        }
+    } else if (beanstalkGrowthStage == 1) {
+        if (inventoryFlags & INVENTORY_BONEMEAL) {
+            inventoryFlags &= ~INVENTORY_BONEMEAL;
+            beanstalkGrowthStage = 2;
+            refreshHomeBeanstalkVisuals();
+        }
+    } else if (beanstalkGrowthStage == 2) {
+        if (inventoryFlags & INVENTORY_WATER) {
+            inventoryFlags &= ~INVENTORY_WATER;
+            beanstalkGrowthStage = 3;
+            refreshHomeBeanstalkVisuals();
+        }
+    }
+}
+
+// Dynamic climb gate for the home beanstalk.
+// The collision map still contains the full stalk, but this helper limits
+// how much of it actually behaves like a climbable tile until the correct
+// resource has been deposited.
+static int canUseCurrentClimbPixel(int x, int y) {
+    int stage;
+
+    if (!isClimbPixel(currentLevel, x, y)) {
+        return 0;
+    }
+
+    if (currentLevel != LEVEL_HOME) {
+        return 1;
+    }
+
+    stage = getEffectiveBeanstalkGrowthStage();
+
+    // Before bonemeal, none of the tall stalk should be climbable yet.
+    if (stage <= 1) {
+        return 0;
+    }
+
+    // Bonemeal reveals only the lower portion of the stalk.
+    if (stage == 2) {
+        return y >= (PARTIAL_BEANSTALK_VISIBLE_TOP_TILE * 8);
+    }
+
+    // Water completes the whole stalk.
+    return 1;
+}
+
 // ======================================================
 //                COLLISION / WORLD QUERY HELPERS
 // ======================================================
@@ -1143,11 +1414,11 @@ static int onClimbTileAt(int x, int y) {
     int lowerY  = y + player.height - 8;
     int footY   = y + player.height - 2;
 
-    return isClimbPixel(currentLevel, centerX, topY)
-        || isClimbPixel(currentLevel, centerX, upperY)
-        || isClimbPixel(currentLevel, centerX, midY)
-        || isClimbPixel(currentLevel, centerX, lowerY)
-        || isClimbPixel(currentLevel, centerX, footY);
+    return canUseCurrentClimbPixel(centerX, topY)
+        || canUseCurrentClimbPixel(centerX, upperY)
+        || canUseCurrentClimbPixel(centerX, midY)
+        || canUseCurrentClimbPixel(centerX, lowerY)
+        || canUseCurrentClimbPixel(centerX, footY);
 }
 
 // True when the player's lower body is still on the ladder / vine,
@@ -1161,11 +1432,11 @@ static int isAtTopOfClimb(int x, int y) {
     int hipY   = y + player.height - 10;
     int footY  = y + player.height - 2;
 
-    int upperOnClimb = isClimbPixel(currentLevel, centerX, headY)
-                    || isClimbPixel(currentLevel, centerX, chestY);
+    int upperOnClimb = canUseCurrentClimbPixel(centerX, headY)
+                    || canUseCurrentClimbPixel(centerX, chestY);
 
-    int lowerOnClimb = isClimbPixel(currentLevel, centerX, hipY)
-                    || isClimbPixel(currentLevel, centerX, footY);
+    int lowerOnClimb = canUseCurrentClimbPixel(centerX, hipY)
+                    || canUseCurrentClimbPixel(centerX, footY);
 
     return lowerOnClimb && !upperOnClimb;
 }
@@ -1389,7 +1660,8 @@ static void handleLevelTransitions(void) {
 //                COLLECTIBLES / INVENTORY
 // ======================================================
 static void initBeanSprout(void) {
-    // Place the bean sprout collectible in home and hide it if it was already collected.
+    // Place the bean sprout collectible in home and hide it if it was already
+    // collected or already deposited into the farmland.
     int playerGroundY;
 
     // Put the bean sprout about 5 tiles in front of the player spawn.
@@ -1397,12 +1669,16 @@ static void initBeanSprout(void) {
 
     // findStandingSpawnY() returns a TOP-Y for a player-sized body.
     // Convert that into a ground Y, then place the bean sprout so its feet
-    // sit on that same ground
+    // sit on that same ground.
     playerGroundY = findStandingSpawnY(beanSprout.x, levelHeight - (8 * 8)) + PLAYER_HEIGHT;
     beanSprout.y = playerGroundY - BEAN_SPROUT_HEIGHT;
 
-    // Hide it if it was already collected.
-    beanSprout.active = ((inventoryFlags & INVENTORY_BEAN_SPROUT) == 0);
+    // The bean sprout should only exist before the first deposit stage.
+    // Once the player has picked it up OR deposited it, do not let it respawn.
+    beanSprout.active =
+        ((inventoryFlags & INVENTORY_BEAN_SPROUT) == 0) &&
+        (beanstalkGrowthStage == 0);
+
     beanSprout.bob = 0;
 }
 

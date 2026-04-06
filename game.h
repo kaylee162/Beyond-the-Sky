@@ -35,6 +35,8 @@
 #define MOVE_SPEED          2
 #define CLIMB_SPEED         1
 
+#define TRANSPARENT_TILE_ID 4
+
 // Useful clamp macro
 #define CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))
 
@@ -204,7 +206,7 @@
 #define LEVEL2_WATER_SPAWN_X             (LEVEL2_PIXEL_W - (6 * 8))
 
 // Put the droplet about 2/3 of the way up the level.
-#define LEVEL2_WATER_SPAWN_Y             (12 * 8)
+#define LEVEL2_WATER_SPAWN_Y             (8 * 8) //12
 // ======================================================
 //                    COLORS / PALETTE HELPERS
 // ======================================================
@@ -212,6 +214,64 @@
 // Teal background color
 // This is useful for the backdrop color / palette index 0.
 #define SKY_COLOR           RGB(0, 23, 31)
+
+
+// Small upward launch when the player reaches the top of a ladder / vine.
+// This helps them "hop" onto the platform instead of getting stuck.
+#define LADDER_EXIT_BOOST  -4
+
+// --------------------------------------------------
+// HOME beanstalk / farmland layout
+// --------------------------------------------------
+
+// The soil patch sits at tile (22, 59) in the 32x64 home map.
+// It is 8 tiles wide x 5 tiles tall.
+#define FARMLAND_TILE_X                 21
+#define FARMLAND_TILE_Y                 59
+#define FARMLAND_WIDTH_TILES             8
+#define FARMLAND_HEIGHT_TILES            5
+
+// Tileset source rectangles for the farmland art.
+// Stage 0 uses the empty farmland at tileset tile (0, 20).
+// Stages 1-3 use the planted farmland at tileset tile (8, 20).
+// Tileset source rectangles for the farmland art.
+#define EMPTY_FARMLAND_SRC_TILE_X        0
+#define PLANTED_FARMLAND_SRC_TILE_X      8
+#define FARMLAND_SRC_TILE_Y             20
+#define EMPTY_FARMLAND_SRC_W             8
+#define EMPTY_FARMLAND_SRC_H             5
+
+// The full home beanstalk already exists in the exported foreground map.
+// We hide and reveal it by overwriting the affected tile rows in VRAM.
+#define HOME_BEANSTALK_TILE_LEFT        21 //19
+#define HOME_BEANSTALK_TILE_RIGHT       28 //29
+#define HOME_BEANSTALK_TILE_TOP          8
+#define HOME_BEANSTALK_TILE_BOTTOM      58
+
+// New beanstalk-base farmland art in the tileset.
+// This replaces the older "seed" graphic after the sprout is deposited.
+#define GROWN_FARMLAND_SRC_X                24
+#define GROWN_FARMLAND_SRC_Y                30
+#define GROWN_FARMLAND_SRC_W                 8
+#define GROWN_FARMLAND_SRC_H                 2
+
+// Align the 8x2 beanstalk-base farmland to the bottom of the 8x5 farmland area.
+#define GROWN_FARMLAND_DEST_X        FARMLAND_TILE_X
+#define GROWN_FARMLAND_DEST_Y        (FARMLAND_TILE_Y + (FARMLAND_HEIGHT_TILES - GROWN_FARMLAND_SRC_H))
+
+// Partial-grown beanstalk should visually start here so it is about 40-ish tiles tall.
+// This also matches the decorative partial top placement below.
+#define PARTIAL_BEANSTALK_VISIBLE_TOP_TILE       17
+
+// Decorative top for the half-grown / 2/3-grown beanstalk.
+// These tiles come from the tileset and are stamped on top of the partial stalk.
+#define PARTIAL_TOP_SRC_X                    19
+#define PARTIAL_TOP_SRC_Y                    21
+#define PARTIAL_TOP_WIDTH                     5
+#define PARTIAL_TOP_HEIGHT                    5
+
+#define PARTIAL_TOP_DEST_X                   22
+#define PARTIAL_TOP_DEST_Y                   17
 
 // ======================================================
 //                    GAME STATES
