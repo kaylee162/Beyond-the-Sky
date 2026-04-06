@@ -102,6 +102,7 @@ static void tryDepositResource(void);
 static int canUseCurrentClimbPixel(int x, int y);
 
 // Collision / interaction helpers
+static int bodyHitsSolidAt(int x, int y);
 static int canMoveTo(int newX, int newY);
 static int onClimbTile(void);
 static int onClimbTileAt(int x, int y);
@@ -1320,38 +1321,84 @@ static int canUseCurrentClimbPixel(int x, int y) {
 // ======================================================
 //                COLLISION / WORLD QUERY HELPERS
 // ======================================================
+static int bodyHitsSolidAt(int x, int y) {
+    // Sample multiple points around the player's body instead of only the 4 corners.
+    // This is much more reliable for a tall player sprite interacting with short
+    // platforms, ledges, and walls.
+
+    int leftX   = x;
+    int centerX = x + (player.width / 2);
+    int rightX  = x + player.width - 1;
+
+    int topY        = y;
+    int upperMidY   = y + (player.height / 3);
+    int lowerMidY   = y + ((player.height * 2) / 3);
+    int bottomY     = y + player.height - 1;
+
+    // Check left edge
+    if (isBlockedPixel(currentLevel, leftX, topY) ||
+        isBlockedPixel(currentLevel, leftX, upperMidY) ||
+        isBlockedPixel(currentLevel, leftX, lowerMidY) ||
+        isBlockedPixel(currentLevel, leftX, bottomY)) {
+        return 1;
+    }
+
+    // Check right edge
+    if (isBlockedPixel(currentLevel, rightX, topY) ||
+        isBlockedPixel(currentLevel, rightX, upperMidY) ||
+        isBlockedPixel(currentLevel, rightX, lowerMidY) ||
+        isBlockedPixel(currentLevel, rightX, bottomY)) {
+        return 1;
+    }
+
+    // Check top edge
+    if (isBlockedPixel(currentLevel, leftX, topY) ||
+        isBlockedPixel(currentLevel, centerX, topY) ||
+        isBlockedPixel(currentLevel, rightX, topY)) {
+        return 1;
+    }
+
+    // Check bottom edge
+    if (isBlockedPixel(currentLevel, leftX, bottomY) ||
+        isBlockedPixel(currentLevel, centerX, bottomY) ||
+        isBlockedPixel(currentLevel, rightX, bottomY)) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static int canMoveTo(int newX, int newY) {
-    // Test the player hitbox against blocked collision pixels.
+    // Test the player hitbox against blocked collision pixels using a
+    // multi-point body check instead of only the 4 corners.
     //
-    // Special case:
-    // once the player starts falling below the bottom edge of the level,
-    // treat that space as open so they can fully fall out of the map.
-    // That allows normal fall deaths and invincibility-cheat recovery
-    // to work instead of getting stuck on the bottom boundary.
-    int rightX = newX + player.width - 1;
+    // This fixes bugs where a tall player can clip into short platforms or
+    // miss narrow ledges while falling.
+
+    int rightX  = newX + player.width - 1;
     int bottomY = newY + player.height - 1;
 
     if (newX < 0 || rightX >= levelWidth || newY < 0) {
         return 0;
     }
 
-    // Fully below the level: allow movement
+    // Fully below the level: allow movement so the player can properly fall out.
     if (newY >= levelHeight) {
         return 1;
     }
 
-    // Partially below the level:
-    // only test the top corners that are still inside the map
+    // If the player is partially below the map, only test the part of the body
+    // that is still inside the level.
     if (bottomY >= levelHeight) {
-        return !isBlockedPixel(currentLevel, newX, newY)
+        int leftX   = newX;
+        int centerX = newX + (player.width / 2);
+
+        return !isBlockedPixel(currentLevel, leftX, newY)
+            && !isBlockedPixel(currentLevel, centerX, newY)
             && !isBlockedPixel(currentLevel, rightX, newY);
     }
 
-    // Normal full 4-corner collision test
-    return !isBlockedPixel(currentLevel, newX, newY)
-        && !isBlockedPixel(currentLevel, rightX, newY)
-        && !isBlockedPixel(currentLevel, newX, bottomY)
-        && !isBlockedPixel(currentLevel, rightX, bottomY);
+    return !bodyHitsSolidAt(newX, newY);
 }
 
 static int findStandingSpawnY(int spawnX, int preferredTopY) {
@@ -1374,9 +1421,12 @@ static int findStandingSpawnY(int spawnX, int preferredTopY) {
     // First search downward from the preferred position
     // until we find a valid open spot with solid ground under the feet.
     for (y = clampedPreferredY; y <= levelHeight - player.height; y++) {
+        int centerFootX = clampedX + (player.width / 2);
+
         if (canMoveTo(clampedX, y) &&
             (y + player.height >= levelHeight ||
              isBlockedPixel(currentLevel, leftFootX, y + player.height) ||
+             isBlockedPixel(currentLevel, centerFootX, y + player.height) ||
              isBlockedPixel(currentLevel, rightFootX, y + player.height))) {
             return y;
         }
@@ -1384,9 +1434,12 @@ static int findStandingSpawnY(int spawnX, int preferredTopY) {
 
     // If that failed, search upward.
     for (y = clampedPreferredY - 1; y >= 0; y--) {
+        int centerFootX = clampedX + (player.width / 2);
+
         if (canMoveTo(clampedX, y) &&
             (y + player.height >= levelHeight ||
              isBlockedPixel(currentLevel, leftFootX, y + player.height) ||
+             isBlockedPixel(currentLevel, centerFootX, y + player.height) ||
              isBlockedPixel(currentLevel, rightFootX, y + player.height))) {
             return y;
         }
@@ -1487,16 +1540,19 @@ static int tryStartLadderTopExit(void) {
 }
 
 static int isStandingOnSolid(void) {
-    // Sample the player's feet to decide whether they are standing on solid ground.
-    int leftFootX  = player.x + 2;
-    int rightFootX = player.x + player.width - 3;
-    int belowY     = player.y + player.height;
+    // Sample left, center, and right under the player's feet.
+    // The center check is important for narrow platforms.
+    int leftFootX   = player.x + 2;
+    int centerFootX = player.x + (player.width / 2);
+    int rightFootX  = player.x + player.width - 3;
+    int belowY      = player.y + player.height;
 
     if (belowY >= levelHeight) {
         return 1;
     }
 
     return isBlockedPixel(currentLevel, leftFootX, belowY)
+        || isBlockedPixel(currentLevel, centerFootX, belowY)
         || isBlockedPixel(currentLevel, rightFootX, belowY);
 }
 
