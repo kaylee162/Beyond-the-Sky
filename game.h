@@ -206,7 +206,7 @@
 #define LEVEL2_WATER_SPAWN_X             (LEVEL2_PIXEL_W - (6 * 8))
 
 // Put the droplet about 2/3 of the way up the level.
-#define LEVEL2_WATER_SPAWN_Y             (8 * 8) //12
+#define LEVEL2_WATER_SPAWN_Y             (6 * 8) //8
 // ======================================================
 //                    COLORS / PALETTE HELPERS
 // ======================================================
@@ -219,6 +219,18 @@
 // Small upward launch when the player reaches the top of a ladder / vine.
 // This helps them "hop" onto the platform instead of getting stuck.
 #define LADDER_EXIT_BOOST  -4
+
+// ======================================================
+//                 CLOUD ANIMATION SETTINGS
+// ======================================================
+
+// How slowly the cloud layer follows the camera.
+// Higher number = slower parallax movement.
+#define CLOUD_PARALLAX_DIVISOR   3 //5 
+
+// How often the clouds auto-scroll by 1 pixel.
+// Higher number = slower cloud drift.
+#define CLOUD_SCROLL_DELAY       6 //4
 
 // --------------------------------------------------
 // HOME beanstalk / farmland layout

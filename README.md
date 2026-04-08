@@ -1,181 +1,181 @@
 # Beyond the Sky
 
 ## Overview
-Beyond the Sky is a Game Boy Advance platformer built using Mode 0. The game blends a calm, grounded home environment with a vertical, side-scrolling sky level where players collect resources to grow a magical beanstalk.
 
-The core experience focuses on smooth movement, light platforming, and a relaxing progression loop. As the player gathers resources and returns them home, the beanstalk grows, unlocking new vertical areas and challenges.
+**Beyond the Sky** is a Game Boy Advance platformer built in **Mode 0** where the player explores a home base and progresses through sky levels by growing a beanstalk.
+
+The gameplay loop focuses on exploration, resource collection, and vertical progression, with smooth movement, layered backgrounds, and simple but polished mechanics.
 
 ---
 
 ## Controls
 
-- **D-Pad Left/Right** → Move
-- **A** → Jump
-- **UP / DOWN** → Climb beanstalk (ladder mechanic)
-- **START** → Pause / Resume
-- **SELECT** → Toggle debug cheats
+* **D-Pad Left / Right** → Move
+* **D-Pad Up** → Jump or Climb ladder/beanstalk (if at a climbing tile)
+* **START** → Pause / Resume
+* **SELECT + UP** → Toggle cheat mode
 
 ---
 
-## Features
+## Core Gameplay Loop
 
-### Game States
-- Start Screen
-- Instructions Screen
-- Home Level (hub area)
-- Sky Level (scrolling platforming level)
-- Pause Screen
-- Win Screen
-- Lose Screen
-
----
-
-### Core Gameplay Mechanics
-- Smooth player movement with gravity and jump physics
-- Ladder climbing system using the beanstalk
-- Resource collection in the sky level
-- Deposit system at the home soil patch
-- Dynamic beanstalk growth tied to player progression
-- Hazard interactions that reset player state
-- Win/Lose conditions based on progression and hazards
+1. Spawn in the **home base**
+2. Collect a **bean sprout**
+3. Deposit it to upgrade farmland, plants the seeds in the farmland
+4. Collect bonemeal in **Level 1**
+5. Deposit bonemeal to grow the **beanstalk**
+6. Climb upward to reach **Level 2**
+7. Collect water droplet and deposit to fully grow the **beanstalk**
+8. Climb to the top and win
 
 ---
 
-### Level Design
-- **Home Level**
-  - Central hub for depositing resources
-  - Beanstalk growth visualization
-  - Safe exploration space
+## Game States
 
-- **Game Levels**
-  - Side-scrolling camera system
-  - Floating platforms and collectibles
-  - Increasing vertical progression
-  - Hazard placement for light challenge
-
----
-
-### Camera & Movement Systems
-- Smooth horizontal camera tracking
-- World bounds and edge constraints
-- Player-centered scrolling in sky level
+* Start Screen
+* Instructions Screen
+* Home Base
+* Level 1 (side-scrolling sky level)
+* Level 2 (side-scrolling sky level)
+* Pause Screen
+* Win Screen
+* Lose Screen
 
 ---
 
-### Visual Systems
-- Mode 0 tile-based rendering
-- Multiple background layers:
-  - Gameplay layer
-  - HUD layer
-  - Parallax background (clouds)
-- Animated or dynamic visual elements
-- Custom font rendering for HUD/text
+## Key Features
+
+### Player Mechanics
+
+* Smooth horizontal movement and jumping with gravity
+* Ladder / beanstalk climbing system
+* Improved ladder-top behavior (no getting stuck at the top)
+* Refined collision detection using multiple probe points
 
 ---
 
-### UI / HUD
-- On-screen text rendering system
-- Resource tracking display
-- Clear feedback for game states (pause, win, lose)
+### World & Progression
+
+* Multi-stage **beanstalk growth system**
+
+  * Regular farmland
+  * Seed farmland (after bean sprout)
+  * Fully grown beanstalk (after bonemeal)
+* Tilemap modification for dynamic world changes
+* Multiple level transitions (top and bottom portals)
 
 ---
 
-### Debug / Cheat Features To Come
-- Toggleable debug mode
-- Instant beanstalk growth
-- Used for rapid testing and progression validation
+### Camera System
+
+* Camera follows the player in larger levels
+* Clamped scrolling within level bounds
+* Stable transitions between levels and home base
 
 ---
 
-## Gameplay Loop
+### Background & Visuals
 
-1. Start in the **Home Level**
-2. Travel into **Level One**
-3. Collect resources
-4. Avoid hazards while platforming
-5. Return to the **Home Level**
-6. Deposit resources into the soil
-7. Grow the beanstalk
-9. Climb higher to Level Two and progress to the top
-10. Win the Game by getting to the top of the beanstalk
+* **Layered background system (Mode 0)**
 
----
+  * Foreground gameplay layer
+  * Separate cloud background layer
+* **Animated cloud system**
 
-## Technical Details
-
-- Built using **Mode 0** (tile-based rendering)
-- Multiple background layers for parallax and HUD
-- Tilemap + collision map system
-- Camera system with smooth scrolling and bounds
-- Sprite handling via OAM
-- Modular state machine for game flow
-- Written in **C** using the **devkitARM toolchain**
-- Based on and extended from course engine architecture
+  * Smooth horizontal looping
+  * Independent from camera movement
+  * Fixed vertical position for realism
+* Tile-based environments with consistent palette usage
 
 ---
 
-## Project Structure
+### HUD & UI
 
-- `main.c`  
-  Main game loop and state machine
+* Dynamic HUD displaying:
 
-- `game.c / game.h`  
-  Core gameplay systems and logic
-
-- `levels.c / levels.h`  
-  Level data and initialization
-
-- `mode0.c / mode0.h`  
-  Background and tile rendering helpers
-
-- `sprites.c / sprites.h`  
-  Sprite/OAM management
-
-- `gba.c / gba.h`  
-  Hardware abstraction layer
-
-- `font.c / font.h`  
-  Text rendering system
+  * Current level
+  * Inventory
+  * Cheat status (when enabled)
+* Clean HUD clearing and redraw system
+* Text rendering using tilemap font system
 
 ---
 
-## Highlights / Improvements
+### Inventory System
 
-- Expanded gameplay beyond initial milestone
-- Fully integrated progression system (beanstalk growth)
-- Improved camera and movement feel
-- More complete UI and player feedback
-- Cleaner separation of systems (rendering, logic, states)
+* Tracks collected items (bean sprout, bonemeal)
+* Displays current inventory in HUD
+* Used to trigger world progression events
+
+---
+
+### Collision System
+
+* Collision maps using palette indices:
+
+  * Walkable / blocked tiles
+  * Hazards
+  * Climbable tiles
+  * Level transitions
+* Improved collision accuracy for tall player sprite
+* Hazard detection and respawn handling
+
+---
+
+### Level Transitions
+
+* Multiple transition types:
+
+  * Home ↔ Level 1 (top and bottom entries)
+  * Home ↔ Level 2
+* Precise spawn positioning on transitions
+* Seamless camera and state updates
+
+---
+
+### Cheats / Debug Features
+
+* Toggleable cheat mode
+* Debug tools for testing progression (e.g., instant growth behavior)
+* Visual indicator when cheats are enabled
+
+---
+
+## Technical Highlights
+
+* Built using **Mode 0 tilemaps and sprites**
+* Efficient rendering using:
+
+  * Hardware scrolling (`REG_BGxHOFF / VOFF`)
+  * DMA for fast memory transfers
+* Clean state machine architecture for game flow
+* Modular systems:
+
+  * Player
+  * Camera
+  * Collision
+  * Rendering
+  * World updates
+
+---
+
+## Known Challenges Solved
+
+* Fixed ladder “stuck at top” bug
+* Improved collision for tall player sprites
+* Resolved tilemap palette inconsistencies
+* Eliminated background flickering issues
 
 ---
 
 ## Future Improvements
 
-- Additional resource types with unique effects
-- More hazards (enemies, wind zones, falling objects)
-- Expanded vertical level design
-- Enhanced animations (player, environment, collectibles)
-- Sound effects and music integration
-- More polished art and tilemaps
-
----
-
-## Notes
-
-- Developed as part of Georgia Tech CS 2261
-- Focused on balancing simplicity with polish
-- Designed to demonstrate core GBA systems:
-  - Rendering
-  - Input handling
-  - State management
-  - Collision and physics
-
+* Daytime Cycle with palette modification at runtime
+* Moving sun sprite to help animate the daytime cycle
+* Add movement to some of the platforms in level 1 and 2
+* Adding digital sound (background and action sounds)
 ---
 
 ## Credits
 
-**Developed by:**  
-Kaylee & Henry  
-
-Georgia Institute of Technology  
-CS 2261 - Media Device Architecture
+Developed as part of a **Game Boy Advance programming project** using the devkitARM toolchain and mGBA emulator.

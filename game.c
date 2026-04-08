@@ -23,7 +23,7 @@ static ResourceItem waterDroplet;
 
 static int hOff;
 static int vOff;
-static int cloudHOff;
+static int cloudScrollX;
 static int frameCounter;
 
 // Inventory bitmask.
@@ -100,6 +100,8 @@ static void refreshHomeBeanstalkVisuals(void);
 static int isPlayerAtFarmland(void);
 static void tryDepositResource(void);
 static int canUseCurrentClimbPixel(int x, int y);
+static int getCloudMapWidth(void);
+static void applyBackgroundOffsets(void);
 
 // Collision / interaction helpers
 static int bodyHitsSolidAt(int x, int y);
@@ -308,6 +310,8 @@ void initGame(void) {
     setBackgroundOffset(1, 0, 0);
     setBackgroundOffset(2, 0, 0);
 
+    cloudScrollX = 0;
+
     goToStart();
 }
 
@@ -506,8 +510,8 @@ static void goToHome(int respawn) {
     vOff = levelHeight - SCREENHEIGHT;
     if (vOff < 0) vOff = 0;
 
-    setBackgroundOffset(1, hOff, vOff);
-    setBackgroundOffset(2, hOff, vOff);
+    // Keep the cloud layer vertically fixed and horizontally animated only.
+    applyBackgroundOffsets();
 }
 
 static void goToLevelOne(int respawn) {
@@ -565,8 +569,8 @@ static void goToLevelOne(int respawn) {
     vOff = levelHeight - SCREENHEIGHT;
     if (vOff < 0) vOff = 0;
 
-    setBackgroundOffset(1, hOff, vOff);
-    setBackgroundOffset(2, hOff, vOff);
+    // Keep the cloud layer vertically fixed and horizontally animated only.
+    applyBackgroundOffsets();
 }
 
 static void goToLevelTwo(int respawn) {
@@ -620,8 +624,8 @@ static void goToLevelTwo(int respawn) {
         vOff = levelHeight - SCREENHEIGHT;
     }
 
-    setBackgroundOffset(1, hOff, vOff);
-    setBackgroundOffset(2, hOff, vOff);
+    // Keep the cloud layer vertically fixed and horizontally animated only.
+    applyBackgroundOffsets();
 }
 
 static void goToPause(void) {
@@ -1070,10 +1074,41 @@ static void updateCamera(void) {
     if (levelHeight < SCREENHEIGHT) {
         vOff = 0;
     }
-
-    cloudHOff = hOff / 3;
 }
 
+// Return the horizontal size of the active cloud background in pixels.
+// Home uses its own 32x64 cloud map, while both sky levels use the shared 64x32 cloud map.
+static int getCloudMapWidth(void) {
+    if (currentLevel == LEVEL_HOME) {
+        return HOME_PIXEL_W;
+    }
+
+    // Level 1 and Level 2 both use the shared level background map.
+    return LEVEL1_PIXEL_W;
+}
+
+// Apply the scrolling offsets for both visible gameplay layers.
+//
+// BG1 = cloud/background layer
+//   - follows the camera more slowly for parallax
+//   - also auto-scrolls on a timer so the clouds keep drifting
+//
+// BG2 = foreground / main gameplay visuals
+static void applyBackgroundOffsets(void) {
+    int cloudMapWidth = getCloudMapWidth();
+
+    // Animate the cloud layer using ONLY a horizontal timer-based scroll.
+    // This keeps the clouds at a fixed vertical position on screen.
+    cloudScrollX = (frameCounter / CLOUD_SCROLL_DELAY) % cloudMapWidth;
+
+    // BG1 = clouds
+    // Horizontal drift only, no vertical camera follow.
+    setBackgroundOffset(1, cloudScrollX, 0);
+
+    // BG2 = main gameplay layer
+    // Foreground follows the camera normally.
+    setBackgroundOffset(2, hOff, vOff);
+}
 
 // ======================================================
 //        HOME BEANSTALK / FARMLAND DYNAMIC VISUALS
@@ -1887,12 +1922,12 @@ static const char* getInventoryText(void) {
 //                RENDERING / SPRITE DRAWING
 // ======================================================
 static void drawGameplay(void) {
-    // Refresh HUD text, scroll the backgrounds, and draw all visible sprites.
+    // Refresh HUD text, scroll the animated cloud layer plus the foreground,
+    // and then draw all visible sprites.
     clearHud();
     drawHudText();
 
-    setBackgroundOffset(1, hOff, vOff);
-    setBackgroundOffset(2, hOff, vOff);
+    applyBackgroundOffsets();
 
     drawSprites();
 }
