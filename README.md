@@ -21,7 +21,7 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 1. Spawn in the **home base**
 2. Collect a **bean sprout**
-3. Deposit it to upgrade farmland, plants the seeds in the farmland
+3. Deposit it to upgrade farmland (plants the seed)
 4. Collect bonemeal in **Level 1**
 5. Deposit bonemeal to grow the **beanstalk**
 6. Climb upward to reach **Level 2**
@@ -58,9 +58,11 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Multi-stage **beanstalk growth system**
 
-  * Regular farmland
-  * Seed farmland (after bean sprout)
-  * Fully grown beanstalk (after bonemeal)
+  * Regular farmland  
+  * Seed farmland (after bean sprout)  
+  * 2/3 grown beanstalk (after bonemeal)
+    The beanstalk base is full grown, but the top is still hidden and a custom beanstalk top is drawn
+  * Fully grown beanstalk (after water droplet)  
 * Tilemap modification for dynamic world changes
 * Multiple level transitions (top and bottom portals)
 
@@ -68,7 +70,7 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 ### Camera System
 
-* Camera follows the player in larger levels
+* Camera follows the player
 * Clamped scrolling within level bounds
 * Stable transitions between levels and home base
 
@@ -78,13 +80,14 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * **Layered background system (Mode 0)**
 
-  * Foreground gameplay layer
-  * Separate cloud background layer
+  * Foreground gameplay layer  
+  * Separate cloud background layer  
+
 * **Animated cloud system**
 
-  * Smooth horizontal looping
-  * Independent from camera movement
-  * Fixed vertical position for realism
+  * Smooth horizontal looping  
+  * Independent from camera movement (work in progress)
+
 * Tile-based environments with consistent palette usage
 
 ---
@@ -93,9 +96,10 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Dynamic HUD displaying:
 
-  * Current level
-  * Inventory
-  * Cheat status (when enabled)
+  * Current level/map
+  * Inventory  
+  * Cheat status (when enabled)  
+
 * Clean HUD clearing and redraw system
 * Text rendering using tilemap font system
 
@@ -103,7 +107,7 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 ### Inventory System
 
-* Tracks collected items (bean sprout, bonemeal)
+* Tracks collected items (bean sprout, bonemeal, water)
 * Displays current inventory in HUD
 * Used to trigger world progression events
 
@@ -113,10 +117,11 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Collision maps using palette indices:
 
-  * Walkable / blocked tiles
-  * Hazards
-  * Climbable tiles
-  * Level transitions
+  * Walkable / blocked tiles  
+  * Hazards  
+  * Climbable tiles  
+  * Level transitions  
+
 * Improved collision accuracy for tall player sprite
 * Hazard detection and respawn handling
 
@@ -126,8 +131,9 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Multiple transition types:
 
-  * Home ↔ Level 1 (top and bottom entries)
-  * Home ↔ Level 2
+  * Home ↔ Level 1 (top and bottom entries)  
+  * Home ↔ Level 2  
+
 * Precise spawn positioning on transitions
 * Seamless camera and state updates
 
@@ -136,8 +142,10 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 ### Cheats / Debug Features
 
 * Toggleable cheat mode
-* Debug tools for testing progression (e.g., instant growth behavior)
-* Visual indicator when cheats are enabled
+* **Invincibility cheat** (player cannot die)  
+* Debug tools for testing progression (instant growth behavior)
+  Note: not implemented yet, but will be
+* Visual indicator when cheats are enabled in the HUD
 
 ---
 
@@ -146,34 +154,116 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 * Built using **Mode 0 tilemaps and sprites**
 * Efficient rendering using:
 
-  * Hardware scrolling (`REG_BGxHOFF / VOFF`)
-  * DMA for fast memory transfers
+  * Hardware scrolling (`REG_BGxHOFF / VOFF`)  
+  * DMA for fast memory transfers  
+
 * Clean state machine architecture for game flow
 * Modular systems:
 
-  * Player
-  * Camera
-  * Collision
-  * Rendering
-  * World updates
+  * Player  
+  * Camera  
+  * Collision  
+  * Rendering  
+  * World updates  
 
 ---
 
-## Known Challenges Solved
+## Progress & Milestones
 
-* Fixed ladder “stuck at top” bug
-* Improved collision for tall player sprites
-* Resolved tilemap palette inconsistencies
-* Eliminated background flickering issues
+### Milestone One COMPLETE
+
+* Core gameplay loop implemented
+* Player movement and collision system working
+* Tileset and Tilemaps working in game
+* Player sprite properly displayed, and animated (although animation frames have not been completed)
+* Level transitions somewhat functional
 
 ---
 
-## Future Improvements
+### Milestone Two IN PROGRESS
 
-* Daytime Cycle with palette modification at runtime
-* Moving sun sprite to help animate the daytime cycle
-* Add movement to some of the platforms in level 1 and 2
-* Adding digital sound (background and action sounds)
+* Resource items (sprites) properly added in game
+* Tile modification for beanstalk at runtime implement correctly and smoothly
+* Parallax background with animated clouds
+* Updated collision checking
+
+#### Need to Fix
+
+* Prevent cloud background from vertically following camera
+
+#### TODO
+
+**Sprites / Animation**
+* Complete player sprite sheet animations
+* Add enemy bee sprite (animation already created)
+
+**Daytime Cycle**
+* Add sun sprite
+* Move sun across screen on timer
+* (Stretch) Smooth animated daylight cycle
+* Palette changes for sky color
+
+---
+
+### Milestone Three TBD
+
+---
+
+## Final Requirements / Planned Features
+
+### Sprites & Animation
+
+* Finalize player animation
+* Add and animate enemy bee
+* Add sun sprite and animation synced with daytime cycle
+
+---
+
+### Levels
+
+* Add moving platforms in Level 1 and Level 2
+
+---
+
+### Daytime Cycle
+
+* Full palette transitions:
+  * Early day → Day → Sunset → Night  
+* Timer-based cycle system
+
+---
+
+### Sound
+
+* Background music (digital sound)
+* Action sound effects (digital sound)
+
+---
+
+### Cheats
+
+* Add resource cheat:
+  * Instantly grant next required resource
+  * Enables full game completion in seconds for testing
+
+---
+
+### Polish / Nice-to-Haves
+
+* Themed “sign-style” UI screens:
+  * Start  
+  * Instructions  
+  * Pause  
+  * Win / Lose  
+
+* Directional signs in levels for guidance
+
+---
+
+## Known Issues
+
+* Cloud background incorrectly follows camera vertically (fix in progress)
+
 ---
 
 ## Credits
