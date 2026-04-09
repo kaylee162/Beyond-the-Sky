@@ -184,8 +184,10 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Resource items (sprites) properly added in game
 * Tile modification for beanstalk at runtime implement correctly and smoothly
+* Deposit logic for the bonemeal and water droplet working perfectly
 * Parallax background with animated clouds
 * Updated collision checking
+* Cleaner Instructions pages
 
 #### Need to Fix
 

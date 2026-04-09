@@ -19,7 +19,7 @@
 #define GAME_SCREENBLOCK    28
 #define GAME_CHARBLOCK      1
 
-// Optional cloud/background layer
+// Cloud/background layer
 #define CLOUD_SCREENBLOCK   30
 
 // ======================================================
@@ -53,12 +53,12 @@
 //                    PLAYER SPRITE SETUP
 // ======================================================
 
-// Player is now 2 tiles wide x 4 tiles tall.
+// Player is 2 tiles wide x 4 tiles tall.
 // That means:
 // width  = 2 * 8 = 16 px
 // height = 4 * 8 = 32 px
 //
-// This CAN be drawn as one single GBA OBJ sprite using 16x32.
+// This can be drawn as one single GBA OBJ sprite using 16x32.
 #define PLAYER_WIDTH        16
 #define PLAYER_HEIGHT       32
 
@@ -69,10 +69,10 @@
 // We copy each frame into contiguous OBJ tile memory so 1D sprite mode
 // can draw it correctly as one 16x32 sprite.
 //
-// Row 0 on sheet: right  animations
-// Row 1 on sheet: left   animations
-// Row 2 on sheet: up     animations (climbing up)
-// Row 3 on sheet: down   animations (falling / climbing down)
+// Row 0 on sheet: right animations
+// Row 1 on sheet: left animations
+// Row 2 on sheet: up animations (climbing up)
+// Row 3 on sheet: down animations (falling / climbing down)
 //
 // Sheet top-lefts (for reference):
 // right row starts at (0, 0)
@@ -110,7 +110,7 @@
 // Bean sprout art on the sprite sheet starts at tile (0, 21)
 // and is 2 tiles wide x 3 tiles tall = 16x24 pixels.
 //
-// The GBA does not support a native 16x24 OBJ size, so we draw it
+// The GBA does not support a native 16x24 OBJ size, so draw it
 // as two sprites:
 //   - top piece    = 16x16
 //   - bottom piece = 16x8
@@ -162,16 +162,16 @@
 // ------------------------------------------------------
 // LEVEL 1 TRANSITION SPAWNS
 //
-// There are now TWO Home <-> Level 1 transition routes:
-//   1. bottom/original portal
+// There are TWO Home <-> Level 1 transition routes:
+//   1. bottom/ground portal
 //   2. top/platform portal
 //
-// For the Y positions, we use "preferred Y" values.
+// For the Y positions, use the "preferred Y" values
 // The game will scan from that Y to find a safe standing spot so things
 // aren't floating or inside platforms
 // ------------------------------------------------------
 
-// HOME -> LEVEL 1 (bottom/original portal)
+// HOME -> LEVEL 1 (bottom/ground portal)
 #define LEVEL1_FROM_HOME_BOTTOM_SPAWN_X     (60 * 8)
 #define LEVEL1_FROM_HOME_BOTTOM_PREF_Y      (LEVEL1_PIXEL_H - (8 * 8))
 
@@ -179,7 +179,7 @@
 #define LEVEL1_FROM_HOME_TOP_SPAWN_X        (60 * 8)
 #define LEVEL1_FROM_HOME_TOP_PREF_Y         (8 * 8)
 
-// LEVEL 1 -> HOME (bottom/original return)
+// LEVEL 1 -> HOME (bottom/ground return)
 #define HOME_FROM_LEVEL1_BOTTOM_SPAWN_X     (6 * 8)
 #define HOME_FROM_LEVEL1_BOTTOM_PREF_Y      (HOME_PIXEL_H - (8 * 8))
 
@@ -207,35 +207,52 @@
 
 // Put the droplet about 2/3 of the way up the level.
 #define LEVEL2_WATER_SPAWN_Y             (6 * 8) //8
+
+// Small upward launch when the player reaches the top of a ladder / vine.
+// This helps em "hop" onto the platform instead of getting stuck.
+#define LADDER_EXIT_BOOST  -4
+
 // ======================================================
 //                    COLORS / PALETTE HELPERS
 // ======================================================
 
-// Teal background color
-// This is useful for the backdrop color / palette index 0.
-#define SKY_COLOR           RGB(0, 23, 31)
+// Sky colors used for the runtime day/night palette cycle.
+// These all affect BG palette index 0 which was the backdrop color
+#define SKY_COLOR_EARLY_MORNING   RGB(4, 18, 26)
+#define SKY_COLOR_DAY             RGB(0, 23, 31)
+#define SKY_COLOR_SUNSET          RGB(29, 18, 15)
+#define SKY_COLOR_NIGHT           RGB(0, 7, 14)
 
+// Keep SKY_COLOR as the default daytime value so any older code that still
+// references SKY_COLOR will continue to work safely.
+#define SKY_COLOR                 SKY_COLOR_DAY
 
-// Small upward launch when the player reaches the top of a ladder / vine.
-// This helps them "hop" onto the platform instead of getting stuck.
-#define LADDER_EXIT_BOOST  -4
+// --------------------------------------------------
+// Daytime cycle tuning
+// --------------------------------------------------
+// How many frames each transition segment lasts.
+#define DAYTIME_CYCLE_SEGMENT_FRAMES     1200 //600
+
+// starting offset into the full cycle so starting the game starts it at EARLY MORNING
+#define DAYTIME_CYCLE_START_OFFSET_FRAMES   0
+
+// Cute green background for menus / title / instructions / pause / win / lose
+#define MENU_BG_COLOR   RGB(10, 25, 10) 
 
 // ======================================================
 //                 CLOUD ANIMATION SETTINGS
 // ======================================================
-
 // How slowly the cloud layer follows the camera.
 // Higher number = slower parallax movement.
-#define CLOUD_PARALLAX_DIVISOR   3 //5 
+#define CLOUD_PARALLAX_DIVISOR           4 //6 
 
 // How often the clouds auto-scroll by 1 pixel.
 // Higher number = slower cloud drift.
-#define CLOUD_SCROLL_DELAY       6 //4
+#define CLOUD_SCROLL_DELAY               6 //4
 
 // --------------------------------------------------
 // HOME beanstalk / farmland layout
 // --------------------------------------------------
-
 // The soil patch sits at tile (22, 59) in the 32x64 home map.
 // It is 8 tiles wide x 5 tiles tall.
 #define FARMLAND_TILE_X                 21
@@ -255,25 +272,24 @@
 
 // The full home beanstalk already exists in the exported foreground map.
 // We hide and reveal it by overwriting the affected tile rows in VRAM.
-#define HOME_BEANSTALK_TILE_LEFT        21 //19
-#define HOME_BEANSTALK_TILE_RIGHT       28 //29
+#define HOME_BEANSTALK_TILE_LEFT        21
+#define HOME_BEANSTALK_TILE_RIGHT       28 
 #define HOME_BEANSTALK_TILE_TOP          8
 #define HOME_BEANSTALK_TILE_BOTTOM      58
 
 // New beanstalk-base farmland art in the tileset.
 // This replaces the older "seed" graphic after the sprout is deposited.
-#define GROWN_FARMLAND_SRC_X                24
-#define GROWN_FARMLAND_SRC_Y                30
-#define GROWN_FARMLAND_SRC_W                 8
-#define GROWN_FARMLAND_SRC_H                 2
+#define GROWN_FARMLAND_SRC_X            24
+#define GROWN_FARMLAND_SRC_Y            30
+#define GROWN_FARMLAND_SRC_W             8
+#define GROWN_FARMLAND_SRC_H             2
 
 // Align the 8x2 beanstalk-base farmland to the bottom of the 8x5 farmland area.
 #define GROWN_FARMLAND_DEST_X        FARMLAND_TILE_X
 #define GROWN_FARMLAND_DEST_Y        (FARMLAND_TILE_Y + (FARMLAND_HEIGHT_TILES - GROWN_FARMLAND_SRC_H))
 
 // Partial-grown beanstalk should visually start here so it is about 40-ish tiles tall.
-// This also matches the decorative partial top placement below.
-#define PARTIAL_BEANSTALK_VISIBLE_TOP_TILE       17
+#define PARTIAL_BEANSTALK_VISIBLE_TOP_TILE   17
 
 // Decorative top for the half-grown / 2/3-grown beanstalk.
 // These tiles come from the tileset and are stamped on top of the partial stalk.
@@ -286,7 +302,7 @@
 #define PARTIAL_TOP_DEST_Y                   17
 
 // ======================================================
-//                    GAME STATES
+//                    GAME STATE
 // ======================================================
 
 typedef enum {
@@ -332,7 +348,6 @@ typedef struct {
     int animFrame;
     int animCounter;
 
-    // Optional bob value kept here in case you want vertical floating later.
     int bob;
 } ResourceItem;
 

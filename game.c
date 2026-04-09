@@ -55,8 +55,9 @@ static void initObjAssets(void);
 static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheetWidthTiles,
     int srcTileX, int srcTileY, int blockWidthTiles, int blockHeightTiles, int dstTileIndex);
 static void drawHudText(void);
-static void drawMenuScreen(const char* title, const char* line1, const char* line2, const char* line3);
 static void drawPauseScreen(void);
+static void drawTitleScreen(void);
+static void drawInstructionsPage(void);
 static void enableGameplayDisplay(void);
 static void enableMenuDisplay(void);
 static void goToStart(void);
@@ -103,6 +104,11 @@ static int canUseCurrentClimbPixel(int x, int y);
 static int getCloudMapWidth(void);
 static void applyBackgroundOffsets(void);
 
+// sky palette/colors 
+static unsigned short lerpSkyColor(unsigned short startColor, unsigned short endColor, int step, int totalSteps);
+static void updateDaytimePalette(void);
+static void setMenuPalette(void);
+
 // Collision / interaction helpers
 static int bodyHitsSolidAt(int x, int y);
 static int canMoveTo(int newX, int newY);
@@ -119,6 +125,9 @@ static int touchesWinTile(void);
 static void handleLevelTransitions(void);
 static void putText(int col, int row, const char* str);
 static void clearHud(void);
+
+// Tracks which instructions page is currently being shown.
+static int instructionsPage = 0;
 
 // --------------------------------------------------
 // Copy a rectangular block of 8x8 OBJ tiles out of the full exported
@@ -143,6 +152,79 @@ static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheet
 }
 
 // ======================================================
+//                RUNTIME DAYTIME PALETTE CYCLE
+// ======================================================
+static unsigned short lerpSkyColor(unsigned short startColor, unsigned short endColor, int step, int totalSteps) {
+    // Linearly interpolate between two GBA 15-bit colors.
+    // Each channel is 5 bits: RRRRRGGGGGBBBBB in the RGB() helper layout.
+    int startR = startColor & 31;
+    int startG = (startColor >> 5) & 31;
+    int startB = (startColor >> 10) & 31;
+
+    int endR = endColor & 31;
+    int endG = (endColor >> 5) & 31;
+    int endB = (endColor >> 10) & 31;
+
+    int r = startR + ((endR - startR) * step) / totalSteps;
+    int g = startG + ((endG - startG) * step) / totalSteps;
+    int b = startB + ((endB - startB) * step) / totalSteps;
+
+    return RGB(r, g, b);
+}
+
+static void updateDaytimePalette(void) {
+    // Animate the backdrop color at runtime by rewriting BG palette index 0.
+    // This creates a looping:
+    // EARLY MORNING -> DAY -> SUNSET -> NIGHT -> EARLY MORNING
+
+    const int segmentLength = DAYTIME_CYCLE_SEGMENT_FRAMES;
+    const int totalCycleLength = segmentLength * 4;
+
+    // Offset lets you choose which part of the cycle the game starts on.
+    int cycleFrame = (frameCounter + DAYTIME_CYCLE_START_OFFSET_FRAMES) % totalCycleLength;
+    int segmentFrame = cycleFrame % segmentLength;
+
+    unsigned short startColor;
+    unsigned short endColor;
+
+    if (cycleFrame < segmentLength) {
+        // Early morning -> day
+        startColor = SKY_COLOR_EARLY_MORNING;
+        endColor = SKY_COLOR_DAY;
+    } else if (cycleFrame < segmentLength * 2) {
+        // Day -> sunset
+        startColor = SKY_COLOR_DAY;
+        endColor = SKY_COLOR_SUNSET;
+    } else if (cycleFrame < segmentLength * 3) {
+        // Sunset -> night
+        startColor = SKY_COLOR_SUNSET;
+        endColor = SKY_COLOR_NIGHT;
+    } else {
+        // Night -> early morning
+        startColor = SKY_COLOR_NIGHT;
+        endColor = SKY_COLOR_EARLY_MORNING;
+    }
+
+    unsigned short currentSkyColor = lerpSkyColor(startColor, endColor, segmentFrame, segmentLength);
+
+    // BG palette index 0 is the visible sky/backdrop color.
+    BG_PALETTE[0] = currentSkyColor;
+
+    // Keep the font row's transparent/background entry synced to the sky color
+    // so HUD/menu text still blends into the background cleanly.
+    BG_PALETTE[FONT_PALROW * 16 + 0] = currentSkyColor;
+}
+
+static void setMenuPalette(void) {
+    // Override palette index 0 with a fixed green color for menus.
+    // This prevents the daytime cycle from affecting UI screens.
+    BG_PALETTE[0] = MENU_BG_COLOR;
+
+    // Keep font transparency consistent with the background
+    BG_PALETTE[FONT_PALROW * 16 + 0] = MENU_BG_COLOR;
+}
+
+// ======================================================
 //                ASSET LOADING AND SETUP
 // ======================================================
 static void initBgAssets(void) {
@@ -151,15 +233,13 @@ static void initBgAssets(void) {
     DMANow(3, (void*)tilesetPal, BG_PALETTE, tilesetPalLen / 2);
     DMANow(3, (void*)tilesetTiles, CHARBLOCK[1].tileimg, tilesetTilesLen / 2);
 
-    // Palette index 0 is the global BG backdrop color.
-    // Because the tilemaps now use index 0 as transparent, this is the sky
-    // color that will show through anywhere index 0 appears.
-    BG_PALETTE[0] = SKY_COLOR;
-
     // Give the HUD/menu font its own dedicated palette row so the text does
     // not inherit random colors from the tileset palette.
-    BG_PALETTE[FONT_PALROW * 16 + 0] = SKY_COLOR;
     BG_PALETTE[FONT_PALROW * 16 + 1] = FONT_COLOR;
+
+    // Initialize the runtime sky color immediately so the first frame starts
+    // with the correct palette-modified backdrop.
+    updateDaytimePalette();
 }
 
 static void initObjAssets(void) {
@@ -351,13 +431,11 @@ void drawGame(void) {
     // Draw the current screen without changing any gameplay state.
     switch (state) {
         case STATE_START:
-            clearHud();
-            drawMenuScreen("BEYOND THE SKY", "PRESS START", "A: NEXT   B: BACK", "SELECT+LEFT/RIGHT/DOWN = MAP CHEATS");
+            drawTitleScreen();
             break;
 
         case STATE_INSTRUCTIONS:
-            clearHud();
-            drawMenuScreen("INSTRUCTIONS", "LEFT/RIGHT MOVE  UP JUMP", "UP/DOWN CLIMB  START PAUSE", "GET WATER IN SKY LEVEL, RETURN, PRESS B ON SOIL");
+            drawInstructionsPage();
             break;
 
         case STATE_HOME:
@@ -372,12 +450,14 @@ void drawGame(void) {
 
         case STATE_WIN:
             clearHud();
-            drawMenuScreen("YOU WIN", "PRESS START TO PLAY AGAIN", "", "");
+            putText(12, 8, "YOU WIN"); 
+            putText(2, 12, "PRESS START TO PLAY AGAIN");
             break;
 
         case STATE_LOSE:
             clearHud();
-            drawMenuScreen("YOU LOSE", "PRESS START TO RESPAWN", "", "");
+            putText(10, 8, "YOU LOSE"); 
+            putText(5, 12, "PRESS START TO RESPAWN");
             break;
     }
 }
@@ -425,7 +505,7 @@ static void enableGameplayDisplay(void) {
 static void enableMenuDisplay(void) {
     // Show only the text layer for menu-style screens and hide all sprites.
     // Menu/state screens only need BG0 text.
-    // The blue backdrop color will fill the rest of the screen.
+    // The green backdrop color will fill the rest of the screen.
     REG_DISPCTL = MODE(0) | BG_ENABLE(0);
 
     // Keep menu text positioned correctly.
@@ -443,15 +523,18 @@ static void goToStart(void) {
     state = STATE_START;
     enableMenuDisplay();
     clearHud();
-    drawMenuScreen("BEYOND THE SKY", "PRESS START", "A: NEXT   B: BACK", "SELECT+UP TOGGLE GROW CHEAT");
+    drawTitleScreen();
+    setMenuPalette();
 }
 
 static void goToInstructions(void) {
-    // Switch to the instructions screen.
+    // Switch to the instructions screen and start on page 1.
     state = STATE_INSTRUCTIONS;
+    instructionsPage = 0;
     enableMenuDisplay();
     clearHud();
-    drawMenuScreen("INSTRUCTIONS", "LEFT/RIGHT MOVE  A JUMP", "UP/DOWN CLIMB  START PAUSE", "GET WATER IN SKY LEVEL, RETURN, PRESS B ON SOIL");
+    drawInstructionsPage();
+    setMenuPalette();
 }
 
 static void goToHome(int respawn) {
@@ -465,6 +548,7 @@ static void goToHome(int respawn) {
     configureMapBackgroundsForLevel(currentLevel);
     loadLevelMaps(currentLevel);
     clearHud();
+    updateDaytimePalette();
 
     player.width = PLAYER_WIDTH;
     player.height = PLAYER_HEIGHT;
@@ -525,6 +609,8 @@ static void goToLevelOne(int respawn) {
     configureMapBackgroundsForLevel(currentLevel);
     loadLevelMaps(currentLevel);
     clearHud();
+    // Restore the animated sky palette for gameplay.
+    updateDaytimePalette();
 
     player.width = PLAYER_WIDTH;
     player.height = PLAYER_HEIGHT;
@@ -584,6 +670,8 @@ static void goToLevelTwo(int respawn) {
     configureMapBackgroundsForLevel(currentLevel);
     loadLevelMaps(currentLevel);
     clearHud();
+    // Restore the animated sky palette for gameplay.
+    updateDaytimePalette();
 
     player.width = PLAYER_WIDTH;
     player.height = PLAYER_HEIGHT;
@@ -635,6 +723,7 @@ static void goToPause(void) {
     enableMenuDisplay();
     clearHud();
     drawPauseScreen();
+    setMenuPalette();
 }
 
 static void goToWin(void) {
@@ -642,7 +731,7 @@ static void goToWin(void) {
     state = STATE_WIN;
     enableMenuDisplay();
     clearHud();
-    drawMenuScreen("YOU WIN", "THE BEANSTALK BLOOMED", "PRESS START TO PLAY AGAIN", instantGrowCheat ? "CHEAT MODE WAS ON" : "CHEAT MODE WAS OFF");
+    setMenuPalette();
 }
 
 static void goToLose(int levelToReturnTo) {
@@ -651,7 +740,7 @@ static void goToLose(int levelToReturnTo) {
     state = STATE_LOSE;
     enableMenuDisplay();
     clearHud();
-    drawMenuScreen("YOU WILTED", "HAZARD HIT OR FALL RESET", "PRESS START TO RESPAWN", "THIS STILL COUNTS AS YOUR RESET/KILL OBSTACLE");
+    setMenuPalette();
 }
 
 static void respawnIntoCurrentLevel(void) {
@@ -669,23 +758,54 @@ static void respawnIntoCurrentLevel(void) {
 //                PER-STATE UPDATE FUNCTIONS
 // ======================================================
 static void updateStart(void) {
-    // Title screen input: continue to instructions.
-    if (BUTTON_PRESSED(BUTTON_START) || BUTTON_PRESSED(BUTTON_A)) {
+    // Title screen input: START opens the instructions screen.
+    if (BUTTON_PRESSED(BUTTON_START)) {
         goToInstructions();
     }
 }
 
 static void updateInstructions(void) {
-    // Instructions screen input: go back to title or continue into gameplay.
+    // Instructions flow:
+    // A = next
+    // B = back
+    // START = begin the game
+
     if (BUTTON_PRESSED(BUTTON_B)) {
-        goToStart();
+        if (instructionsPage == 0) {
+            // From page 1, go back to the title screen.
+            goToStart();
+        } else {
+            // From page 2, go back to page 1.
+            instructionsPage = 0;
+            drawInstructionsPage();
+            setMenuPalette();
+        }
+        return;
     }
-    if (BUTTON_PRESSED(BUTTON_START) || BUTTON_PRESSED(BUTTON_A)) {
-        // Start a completely fresh run from home.
+
+    if (BUTTON_PRESSED(BUTTON_A)) {
+        if (instructionsPage == 0) {
+            // From page 1, go to page 2.
+            instructionsPage = 1;
+            drawInstructionsPage();
+            setMenuPalette();
+        }
+        return;
+    }
+
+    if (BUTTON_PRESSED(BUTTON_START)) {
+        // Start a completely fresh run from the home level.
         inventoryFlags = 0;
         beanstalkGrowthStage = 0;
         instantGrowCheat = 0;
-        invincibilityCheat = 0;   // <-- ADD THIS LINE
+        invincibilityCheat = 0;
+        cheatModeEnabled = 0;
+
+        // Restart the daytime cycle so a brand new game always begins at
+        // early morning. This only happens on fresh game start, not on
+        // normal level transitions.
+        frameCounter = 0;
+
         goToHome(0);
     }
 }
@@ -710,6 +830,10 @@ static void updatePause(void) {
     if (BUTTON_PRESSED(BUTTON_START)) {
         state = gameplayStateBeforePause;
         enableGameplayDisplay();
+
+        // Restore the animated gameplay sky palette after leaving the pause menu.
+        updateDaytimePalette();
+
         clearHud();
     }
 
@@ -726,13 +850,17 @@ static void updateLose(void) {
 }
 
 static void updateWin(void) {
-    // Win screen input: clear run progress and return to the title screen.
     if (BUTTON_PRESSED(BUTTON_START)) {
         // Fresh run after winning.
         inventoryFlags = 0;
         beanstalkGrowthStage = 0;
         instantGrowCheat = 0;
-        invincibilityCheat = 0; 
+        invincibilityCheat = 0;
+        cheatModeEnabled = 0;
+
+        // Reset the daytime cycle so the next new run starts at early morning.
+        frameCounter = 0;
+
         goToStart();
     }
 }
@@ -847,14 +975,10 @@ static void updatePlayerMovement(void) {
     player.oldX = player.x;
     player.oldY = player.y;
 
-    // --------------------------------------------------
     // Check whether the player is standing on solid ground
-    // --------------------------------------------------
     player.grounded = isStandingOnSolid();
 
-    // --------------------------------------------------
     // Read movement input
-    // --------------------------------------------------
     if (BUTTON_HELD(BUTTON_LEFT)) {
         dx -= MOVE_SPEED;
         player.direction = DIR_LEFT;
@@ -869,9 +993,7 @@ static void updatePlayerMovement(void) {
     wantsClimbDown = BUTTON_HELD(BUTTON_DOWN);
     onClimbNow = onClimbTile();
 
-    // --------------------------------------------------
     // Climbing logic
-    // --------------------------------------------------
     if (onClimbNow && (wantsClimbUp || wantsClimbDown)) {
         player.climbing = 1;
         player.yVel = 0;
@@ -880,20 +1002,15 @@ static void updatePlayerMovement(void) {
         player.climbing = 0;
     }
 
-    // --------------------------------------------------
     // Jump logic
-    //
     // Normal jump only when not climbing.
     // Ladder-top exit is handled separately below.
-    // --------------------------------------------------
     if (!player.climbing && BUTTON_PRESSED(BUTTON_UP) && player.grounded) {
         player.yVel = JUMP_VEL;
         player.grounded = 0;
     }
 
-    // --------------------------------------------------
     // Gravity / falling
-    // --------------------------------------------------
     if (!player.climbing) {
         if (!player.grounded || player.yVel < 0) {
             player.yVel += GRAVITY;
@@ -905,9 +1022,7 @@ static void updatePlayerMovement(void) {
         }
     }
 
-    // --------------------------------------------------
     // Horizontal movement resolution, 1 pixel at a time
-    // --------------------------------------------------
     if (dx != 0) {
         step = (dx > 0) ? 1 : -1;
         remaining = (dx > 0) ? dx : -dx;
@@ -922,9 +1037,7 @@ static void updatePlayerMovement(void) {
         }
     }
 
-    // --------------------------------------------------
     // Vertical movement while climbing
-    // --------------------------------------------------
     if (player.climbing) {
         int climbDy = 0;
 
@@ -962,19 +1075,14 @@ static void updatePlayerMovement(void) {
             }
         }
 
-        // If the body no longer overlaps the climb tiles, leave climb mode.
-        // If the body no longer overlaps the climb tiles, leave climb mode.
-        // Do NOT zero yVel here — if tryStartLadderTopExit just gave the player
-        // an upward boost, zeroing it would cancel the launch immediately.
+        // If the body no longer overlaps the climb tiles, leave climb mode
+        // If the body no longer overlaps the climb tiles, leave climb mode
         if (!onClimbTile()) {
             player.climbing = 0;
             player.grounded = isStandingOnSolid();
-            // yVel intentionally preserved so ladder-exit boost is not cancelled
         }
     } else {
-        // --------------------------------------------------
         // Vertical movement from jump / gravity
-        // --------------------------------------------------
         if (player.yVel != 0) {
             step = (player.yVel > 0) ? 1 : -1;
             remaining = (player.yVel > 0) ? player.yVel : -player.yVel;
@@ -994,9 +1102,7 @@ static void updatePlayerMovement(void) {
         }
     }
 
-    // --------------------------------------------------
     // Clamp to world bounds
-    // --------------------------------------------------
     if (player.x < 0) {
         player.x = 0;
     }
@@ -1007,9 +1113,7 @@ static void updatePlayerMovement(void) {
         player.x = levelWidth - player.width;
     }
 
-    // --------------------------------------------------
     // Final grounded check
-    // --------------------------------------------------
     if (!player.climbing) {
         player.grounded = isStandingOnSolid();
         if (player.grounded && player.yVel > 0) {
@@ -1017,10 +1121,7 @@ static void updatePlayerMovement(void) {
         }
     }
 
-    // --------------------------------------------------
     // Decide which animation row to use
-    // --------------------------------------------------
-
     if (dx < 0) {
         player.direction = DIR_LEFT;
     } else if (dx > 0) {
@@ -1037,9 +1138,7 @@ static void updatePlayerMovement(void) {
         player.direction = DIR_DOWN;
     }
 
-    // --------------------------------------------------
     // Decide whether to animate this frame
-    // --------------------------------------------------
     if ((dx != 0 && player.x != player.oldX) ||
         (player.climbing && wantsClimbUp && player.y < player.oldY) ||
         (player.climbing && wantsClimbDown && player.y > player.oldY) ||
@@ -1116,9 +1215,10 @@ static void applyBackgroundOffsets(void) {
 
 // Return the active beanstalk growth stage.
 // The grow cheat temporarily forces the visuals and climb logic to full growth.
+// NOT IMPLEMENTED YET and DOESNT WORK
 static int getEffectiveBeanstalkGrowthStage(void) {
     if (instantGrowCheat) {
-        return 3;
+        return 3; 
     }
 
     return beanstalkGrowthStage;
@@ -1612,7 +1712,7 @@ static int fellOutOfLevel(void) {
 
 static void recoverFromInvincibleFall(void) {
     // With invincibility enabled, falling out of the level should not kill
-    // the player. Snap them back to the current level respawn instead.
+    // the player.
     player.x = CLAMP(respawnX, 0, levelWidth - player.width);
     player.y = CLAMP(respawnY, 0, levelHeight - player.height);
 
@@ -1884,11 +1984,6 @@ static void updateCollectibleAnimations(void) {
 
 // --------------------------------------------------
 // Build HUD inventory text.
-//
-// This is scaffolding for the future inventory system.
-// When bonemeal and water droplet are implemented later, just OR in:
-//   inventoryFlags |= INVENTORY_BONEMEAL;
-//   inventoryFlags |= INVENTORY_WATER;
 // --------------------------------------------------
 static const char* getInventoryText(void) {
     // Build the HUD string that lists the items currently in the inventory bitmask.
@@ -1922,6 +2017,10 @@ static const char* getInventoryText(void) {
 //                RENDERING / SPRITE DRAWING
 // ======================================================
 static void drawGameplay(void) {
+    // Restore and animate the sky palette during gameplay.
+    // This ensures gameplay never gets stuck using the menu green background.
+    updateDaytimePalette();
+
     // Refresh HUD text, scroll the animated cloud layer plus the foreground,
     // and then draw all visible sprites.
     clearHud();
@@ -2092,23 +2191,39 @@ static void drawHudText(void) {
     putText(1, 5, getInventoryText());
 }
 
-static void drawMenuScreen(const char* title, const char* line1, const char* line2, const char* line3) {
-    // Draw a simple four-line text menu layout on BG0.
-    // This function should only DRAW the menu screen.
-    setBackgroundOffset(1, 0, 0);
-    setBackgroundOffset(2, 0, 0);
-    putText(6, 5, title);
-    putText(3, 10, line1);
-    putText(3, 13, line2);
-    putText(3, 16, line3);
+static void drawTitleScreen(void) {
+    clearHud();
+    putText(8, 6, "BEYOND THE SKY");
+    putText(8, 8, "COZY FARM GAME");
+    putText(9, 14, "PRESS START");
+}
+
+static void drawInstructionsPage(void) {
+    // Draw the current instructions page.
+    clearHud();
+
+    if (instructionsPage == 0) {
+        clearHud();
+        putText(7, 4, "INSTRUCTIONS 1/2");
+        putText(8, 8,"LEFT/RIGHT MOVE");
+        putText(4, 10, "UP/DOWN JUMP OR CLIMB");
+        putText(7, 16, "A NEXT  B BACK");
+    } else {
+        clearHud();
+        putText(7, 4, "INSTRUCTIONS 2/2");
+        putText(7, 8, "FINISH LEVELS TO");
+        putText(4, 10, "GET RESOURCES, RETURN");
+        putText(3, 12, "HOME & PRESS B ON SOIL");
+        putText(6, 16, "B PREV  START PLAY");
+    }
 }
 
 static void drawPauseScreen(void) {
     // Draw pause text and hide gameplay sprites while paused.
     clearHud();
-    putText(11, 7, "PAUSED");
-    putText(6, 11, "START TO RESUME");
-    putText(4, 14, "SELECT TO RETURN TO TITLE");
+    putText(9, 7, "PAUSED GAME");
+    putText(7, 11, "START TO RESUME"); 
+    putText(2, 14, "SELECT TO RETURN TO TITLE"); 
     hideSprites();
 }
 
