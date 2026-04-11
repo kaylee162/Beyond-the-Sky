@@ -61,16 +61,7 @@ desktop.ini
 # ==============================
 # Docker / Build Environment
 # ==============================
-# (usually nothing generated, but safe to include)
 docker-compose.override.yml
-
-# ==============================
-# Generated Assets (optional)
-# ==============================
-# Uncomment if you ever auto-generate assets
-# *.png
-# *.bmp
-# *.pal
 
 # ==============================
 # Archives
