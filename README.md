@@ -90,6 +90,12 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Tile-based environments with consistent palette usage
 
+* **Daytime Cycle**
+
+* Full palette transitions:
+  * Early day → Day → Sunset → Night  
+* Timer-based cycle system
+
 ---
 
 ### HUD & UI
@@ -143,9 +149,11 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Toggleable cheat mode
 * **Invincibility cheat** (player cannot die)  
-* Debug tools for testing progression (instant growth behavior)
-  Note: not implemented yet, but will be
-* Visual indicator when cheats are enabled in the HUD
+* **Visual indicator when cheats are enabled in the HUD
+
+* Instant resource cheat
+* **Instantly grant next required resource
+* **Enables full game completion in seconds for testing
 
 ---
 
@@ -182,28 +190,27 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 ### Milestone Two IN PROGRESS
 
-* Resource items (sprites) properly added in game
+* Resource items (sprites: bonemeal & droplet) properly added in game
+* Deposit logic for the bonemeal and water droplet working perfectly with tile modification
 * Tile modification for beanstalk at runtime implement correctly and smoothly
-* Deposit logic for the bonemeal and water droplet working perfectly
+* Updated collison map logic to go with the tile modification
 * Parallax background with animated clouds
-* Updated collision checking
-* Cleaner Instructions pages
+* Updated collision checking for player & platforms
+* Cleaner Instructions pages and logic
+* Smooth animated daylight cycle (palette modification at runtime)
+* Get instant resource cheat
+* Updated Spritesheet with player animations
 
 #### Need to Fix
-
-* Prevent cloud background from vertically following camera
 
 #### TODO
 
 **Sprites / Animation**
-* Complete player sprite sheet animations
 * Add enemy bee sprite (animation already created)
 
 **Daytime Cycle**
 * Add sun sprite
 * Move sun across screen on timer
-* (Stretch) Smooth animated daylight cycle
-* Palette changes for sky color
 
 ---
 
@@ -215,7 +222,6 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 ### Sprites & Animation
 
-* Finalize player animation
 * Add and animate enemy bee
 * Add sun sprite and animation synced with daytime cycle
 
@@ -227,26 +233,10 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 ---
 
-### Daytime Cycle
-
-* Full palette transitions:
-  * Early day → Day → Sunset → Night  
-* Timer-based cycle system
-
----
-
 ### Sound
 
 * Background music (digital sound)
 * Action sound effects (digital sound)
-
----
-
-### Cheats
-
-* Add resource cheat:
-  * Instantly grant next required resource
-  * Enables full game completion in seconds for testing
 
 ---
 
@@ -262,9 +252,8 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 ---
 
-## Known Issues
-
-* Cloud background incorrectly follows camera vertically (fix in progress)
+## Known Issuese
+NONE :P
 
 ---
 

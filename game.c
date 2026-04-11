@@ -7,6 +7,9 @@
 // ======================================================
 //                FILE-SCOPE GAME STATE
 // ======================================================
+// This file keeps nearly all gameplay state at file scope so the update and
+// draw pipeline can share the same data each frame without passing large
+// structs around between helpers 
 
 static GameState state;
 static GameState gameplayStateBeforePause;
@@ -43,7 +46,6 @@ static int loseReturnLevel;
 
 // Cheats
 int cheatModeEnabled;
-int instantGrowCheat;
 int invincibilityCheat;
 
 // --------------------------------------------------
@@ -93,7 +95,7 @@ static void updateCollectibles(void);
 static void updateCollectibleAnimations(void);
 static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh);
 static const char* getInventoryText(void);
-static int getEffectiveBeanstalkGrowthStage(void);
+static void giveNextResourceCheat(void);
 static unsigned short getHomeForegroundSourceEntry(int tileX, int tileY);
 static void setHomeForegroundTileEntry(int tileX, int tileY, unsigned short entry);
 static void drawHomeTileBlockFromTileset(int mapTileX, int mapTileY, int srcTileX, int srcTileY, int widthTiles, int heightTiles);
@@ -154,6 +156,15 @@ static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheet
 // ======================================================
 //                RUNTIME DAYTIME PALETTE CYCLE
 // ======================================================
+// Instead of swapping out whole background graphics for each time of day,
+// this game changes the sky at runtime by rewriting palette memory. That is
+// much cheaper than reloading maps or tiles and works well because the sky is
+// represented by a palette color rather than unique pixel art per frame.
+//
+// Demo explanation:
+// I keep the background art the same, but I animate the sky by changing
+// palette index 0 over time. Since the GBA tilemap references palette colors,
+// updating one entry instantly recolors every tile using that index.
 static unsigned short lerpSkyColor(unsigned short startColor, unsigned short endColor, int step, int totalSteps) {
     // Linearly interpolate between two GBA 15-bit colors.
     // Each channel is 5 bits: RRRRRGGGGGBBBBB in the RGB() helper layout.
@@ -324,7 +335,7 @@ static void initObjAssets(void) {
         OBJ_TILE_BEAN_SPROUT
     );
 
-        // --------------------------------------------------
+    // --------------------------------------------------
     // Copy bonemeal sprite art
     //
     // Frame 0 top-left = (0, 19)
@@ -377,7 +388,6 @@ void initGame(void) {
     frameCounter = 0;
     inventoryFlags = 0;
     beanstalkGrowthStage = 0;
-    instantGrowCheat = 0;
     invincibilityCheat = 0;
     cheatModeEnabled = 0;
 
@@ -727,7 +737,7 @@ static void goToPause(void) {
 }
 
 static void goToWin(void) {
-    // Switch to the win screen and summarize the cheat state used during the run.
+    // Switch to the win screen
     state = STATE_WIN;
     enableMenuDisplay();
     clearHud();
@@ -797,7 +807,6 @@ static void updateInstructions(void) {
         // Start a completely fresh run from the home level.
         inventoryFlags = 0;
         beanstalkGrowthStage = 0;
-        instantGrowCheat = 0;
         invincibilityCheat = 0;
         cheatModeEnabled = 0;
 
@@ -854,7 +863,6 @@ static void updateWin(void) {
         // Fresh run after winning.
         inventoryFlags = 0;
         beanstalkGrowthStage = 0;
-        instantGrowCheat = 0;
         invincibilityCheat = 0;
         cheatModeEnabled = 0;
 
@@ -870,21 +878,21 @@ static void updateWin(void) {
 // ======================================================
 static void updateGameplayCommon(void) {
     // Handle the shared gameplay loop used by all playable levels.
-    // START pauses the game.
+
     if (BUTTON_PRESSED(BUTTON_START)) {
         goToPause();
         return;
     }
 
-    // Optional cheat toggle: instant grow
-    if (BUTTON_PRESSED(BUTTON_SELECT) && BUTTON_HELD(BUTTON_UP)) {
-        instantGrowCheat = !instantGrowCheat;
-
-        // The grow cheat temporarily forces the beanstalk to its final stage.
-        // Refresh the home visuals immediately if the player is currently there.
-        if (currentLevel == LEVEL_HOME) {
-            refreshHomeBeanstalkVisuals();
-        }
+    // SELECT + A gives the next resource needed for progression.
+    // Order:
+    //   1) bonemeal
+    //   2) water droplet
+    //
+    // If bonemeal has already been obtained or deposited, this gives water.
+    // Both resources can exist in the inventory at the same time.
+    if (BUTTON_HELD(BUTTON_SELECT) && BUTTON_PRESSED(BUTTON_A)) {
+        giveNextResourceCheat();
     }
 
     // Toggle cheat mode on/off with SELECT + B.
@@ -931,7 +939,8 @@ static void updateGameplayCommon(void) {
     //
     // Invincibility cheat:
     // - hazard tiles are ignored
-    // - falling out of the level snaps the player back to the current respawn
+    // - in level two, the player cannot "fall out of the world" and die, so they are able
+    // to just walk along the bottom
     if (invincibilityCheat) {
         if (fellOutOfLevel()) {
             recoverFromInvincibleFall();
@@ -964,6 +973,17 @@ static void updatePlayerAnimation(void) {
 
 static void updatePlayerMovement(void) {
     // Resolve player input, climbing, jumping, gravity, and collision one pixel at a time.
+    //
+    // Movement is not applied in one big jump. Horizontal and vertical motion
+    // are both resolved one pixel at a time, which makes collision much more
+    // reliable around tile edges, short platforms, ladders, and ledges.
+    //
+    // Demo explanation:
+    // I read the controls, decide whether the player is walking, jumping,
+    // falling, or climbing, and then I move them pixel-by-pixel. At each step
+    // I ask whether the next position is legal. That keeps the player from
+    // tunneling through walls and helps the tall sprite land correctly on
+    // narrow platforms.
     int dx = 0;
     int step;
     int remaining;
@@ -994,6 +1014,10 @@ static void updatePlayerMovement(void) {
     onClimbNow = onClimbTile();
 
     // Climbing logic
+    // The player enters climb mode only when their body overlaps a climb tile
+    // and the player is actively pressing up or down. This avoids 'sticky'
+    // ladder behavior where merely touching a ladder would steal control away
+    // from normal platforming.
     if (onClimbNow && (wantsClimbUp || wantsClimbDown)) {
         player.climbing = 1;
         player.yVel = 0;
@@ -1005,6 +1029,12 @@ static void updatePlayerMovement(void) {
     // Jump logic
     // Normal jump only when not climbing.
     // Ladder-top exit is handled separately below.
+    //
+    // This separation is important: a standard jump and a ladder-top exit are
+    // different situations. A normal jump starts from grounded platforming,
+    // while the ladder-top exit is a special anti-stuck case triggered when
+    // the lower body is still on the climb tile but the upper body has already
+    // cleared it.
     if (!player.climbing && BUTTON_PRESSED(BUTTON_UP) && player.grounded) {
         player.yVel = JUMP_VEL;
         player.grounded = 0;
@@ -1063,6 +1093,12 @@ static void updatePlayerMovement(void) {
                 }
                 // Special case: climbing upward at the top of the ladder / vine.
                 // Leave climb mode and give the player a mini upward launch.
+                //
+                // This is what lets the player get on top of the ladder instead
+                // of getting trapped. Once the code detects that only the lower
+                // body is still overlapping climb pixels, it pops the player up
+                // to a clean non-climb position and gives a small upward boost
+                // so the sprite lands naturally on the platform above.
                 else if (step < 0 && wantsClimbUp && isAtTopOfClimb(player.x, player.y)) {
                     tryStartLadderTopExit();
                     wasActivelyMoving = 1;
@@ -1075,7 +1111,6 @@ static void updatePlayerMovement(void) {
             }
         }
 
-        // If the body no longer overlaps the climb tiles, leave climb mode
         // If the body no longer overlaps the climb tiles, leave climb mode
         if (!onClimbTile()) {
             player.climbing = 0;
@@ -1194,6 +1229,10 @@ static int getCloudMapWidth(void) {
 //
 // BG2 = foreground / main gameplay visuals
 static void applyBackgroundOffsets(void) {
+    // This is where the camera and parallax meet. BG2 follows the player as
+    // the main gameplay layer, while BG1 behaves like a drifting cloud layer.
+    // The cloud layer scrolls on a timer, so the world feels more alive even
+    // if the player stands still.
     int cloudMapWidth = getCloudMapWidth();
 
     // Animate the cloud layer using ONLY a horizontal timer-based scroll.
@@ -1202,7 +1241,7 @@ static void applyBackgroundOffsets(void) {
 
     // BG1 = clouds
     // Horizontal drift only, no vertical camera follow.
-    setBackgroundOffset(1, cloudScrollX, 0);
+    setBackgroundOffset(1, cloudScrollX, vOff);
 
     // BG2 = main gameplay layer
     // Foreground follows the camera normally.
@@ -1212,18 +1251,14 @@ static void applyBackgroundOffsets(void) {
 // ======================================================
 //        HOME BEANSTALK / FARMLAND DYNAMIC VISUALS
 // ======================================================
-
-// Return the active beanstalk growth stage.
-// The grow cheat temporarily forces the visuals and climb logic to full growth.
-// NOT IMPLEMENTED YET and DOESNT WORK
-static int getEffectiveBeanstalkGrowthStage(void) {
-    if (instantGrowCheat) {
-        return 3; 
-    }
-
-    return beanstalkGrowthStage;
-}
-
+// The home map is not completely static. Once resources are deposited, this
+// code edits the live foreground tilemap at runtime so the farmland and
+// beanstalk visibly change.
+//
+// Demo explanation:
+// The original home map is my baseline. When the player deposits items, I
+// directly overwrite selected tilemap entries in VRAM so the farmland changes
+// appearance and the beanstalk appears to grow without loading a new map.
 // Read a tile entry out of the original exported home foreground map.
 static unsigned short getHomeForegroundSourceEntry(int tileX, int tileY) {
     if (tileX < 0 || tileX >= HOME_MAP_W || tileY < 0 || tileY >= HOME_MAP_H) {
@@ -1274,6 +1309,19 @@ static void drawHomeTileBlockFromTileset(int mapTileX, int mapTileY, int srcTile
 
 // Rebuild the visible home beanstalk and farmland art from the current growth stage.
 static void refreshHomeBeanstalkVisuals(void) {
+    // Rebuild the visible home beanstalk and farmland art from the current growth stage.
+    //
+    // This function is the core of the growth system. It does two different jobs:
+    // 1) it changes what the player sees by modifying the live tilemap
+    // 2) together with canUseCurrentClimbPixel(), it keeps the visual state and
+    //    usable climb region in sync
+    //
+    // Growth breakdown:
+    // - Stage 0: regular farmland only
+    // - Stage 1: planted farmland after bean sprout is deposited
+    // - Stage 2: partial growth after bonemeal, including only the lower stalk
+    //   and a decorative half-grown top so it looks intentional
+    // - Stage 3: full beanstalk after water, with the original tall stalk restored
     int stage;
     int row;
     int col;
@@ -1283,7 +1331,8 @@ static void refreshHomeBeanstalkVisuals(void) {
         return;
     }
 
-    stage = getEffectiveBeanstalkGrowthStage();
+    // Use the real deposited beanstalk growth stage
+    stage = beanstalkGrowthStage;
 
     // --------------------------------------------------
     // Hide or reveal the tall beanstalk region.
@@ -1359,8 +1408,9 @@ static void refreshHomeBeanstalkVisuals(void) {
 
     // --------------------------------------------------
     // Stage 2 only:
-    // Stamp the decorative half-grown beanstalk top so the stalk does not
-    // end in a hard straight cutoff.
+    // The 2/3 grown state is intentionally a hybrid. The lower stalk is real
+    // climbable beanstalk art, but the upper tip is drawn separately as a
+    // decorative cap so the plant does not look like it was cut off flat.
     // --------------------------------------------------
     if (stage == 2) {
         drawHomeTileBlockFromTileset(
@@ -1388,6 +1438,12 @@ static int isPlayerAtFarmland(void) {
 // Deposit order is fixed:
 //   bean sprout -> bonemeal -> water
 static void tryDepositResource(void) {
+    // Handle B-button deposits at the farmland.
+    //
+    // Inventory and growth are separate on purpose. Picking something up only
+    // sets an inventory bit. The world does not change until the player comes
+    // back home, stands on the farmland, and presses B. That makes the loop
+    // clear: explore -> collect -> return home -> deposit -> grow.
     if (currentLevel != LEVEL_HOME) {
         return;
     }
@@ -1427,6 +1483,12 @@ static void tryDepositResource(void) {
 // how much of it actually behaves like a climbable tile until the correct
 // resource has been deposited.
 static int canUseCurrentClimbPixel(int x, int y) {
+    // Dynamic climb gate for the home beanstalk.
+    //
+    // The home collision map already contains the full beanstalk path, but the
+    // player is not allowed to use all of it immediately. This helper acts as
+    // a runtime gate: the collision art is there, but only the correct portion
+    // is treated as climbable depending on the growth stage.
     int stage;
 
     if (!isClimbPixel(currentLevel, x, y)) {
@@ -1437,7 +1499,8 @@ static int canUseCurrentClimbPixel(int x, int y) {
         return 1;
     }
 
-    stage = getEffectiveBeanstalkGrowthStage();
+    // Use the real deposited beanstalk growth stage.
+    stage = beanstalkGrowthStage;
 
     // Before bonemeal, none of the tall stalk should be climbable yet.
     if (stage <= 1) {
@@ -1458,9 +1521,11 @@ static int canUseCurrentClimbPixel(int x, int y) {
 // ======================================================
 static int bodyHitsSolidAt(int x, int y) {
     // Sample multiple points around the player's body instead of only the 4 corners.
-    // This is much more reliable for a tall player sprite interacting with short
-    // platforms, ledges, and walls.
-
+    //
+    // This is one of the most important collision fixes in the file. Because
+    // the player sprite is tall, corner-only collision can miss short ledges or
+    // let the body clip into nearby tiles. Sampling left/right edges plus top
+    // and bottom points makes collision much more stable.
     int leftX   = x;
     int centerX = x + (player.width / 2);
     int rightX  = x + player.width - 1;
@@ -1507,6 +1572,8 @@ static int canMoveTo(int newX, int newY) {
     // Test the player hitbox against blocked collision pixels using a
     // multi-point body check instead of only the 4 corners.
     //
+    // This is the main 'is this next position legal?' helper used by movement.
+    // Almost all movement eventually funnels through here.
     // This fixes bugs where a tall player can clip into short platforms or
     // miss narrow ledges while falling.
 
@@ -1612,6 +1679,9 @@ static int onClimbTileAt(int x, int y) {
 // True when the player's lower body is still on the ladder / vine,
 // but the upper body has already cleared it
 static int isAtTopOfClimb(int x, int y) {
+    // This very specific check is what detects the classic ladder-top trap.
+    // Once the head and chest are clear but the hips/feet are still on the
+    // climb tile, the code knows the player is trying to step onto the top.
     // Detect the specific case where the player has reached the top of a climbable area.
     int centerX = x + (player.width / 2);
 
@@ -1644,6 +1714,12 @@ static int isAtTopOfClimb(int x, int y) {
 // so that the player is not permanently trapped.
 static int tryStartLadderTopExit(void) {
     // Pop the player upward off the ladder so they can step onto the platform above.
+    //
+    // Demo explanation:
+    // When the player reaches the top of a ladder, I scan upward to find the
+    // first position that is both non-solid and no longer overlapping climb
+    // tiles. Then I move the player there and apply a small upward velocity so
+    // they cleanly arc onto the platform instead of getting stuck.
     int pop;
 
     // Scan upward. Try to find a spot where:
@@ -1743,8 +1819,12 @@ static int touchesWinTile(void) {
 
 static void handleLevelTransitions(void) {
     // Check collision-map transition markers under the player and swap maps when needed.
-    // Sample the player's feet area for transition tiles.
-    // Checking left / center / right is more reliable than a single point.
+    //
+    // Transitions are data-driven through collision-map palette indices. The
+    // gameplay code does not look for decorative art tiles. It reads the exact
+    // collision value under the player's feet and chooses the destination spawn
+    // based on that marker. That makes portals and doors easy to move by just
+    // editing the collision map.
     int leftX   = player.x + 2;
     int centerX = player.x + (player.width / 2);
     int rightX  = player.x + player.width - 3;
@@ -1918,6 +1998,10 @@ static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, 
 
 static void updateCollectibles(void) {
     // Handle item pickup logic for all active collectibles in the world.
+    //
+    // Pickups use simple AABB overlap checks because they are forgiving and
+    // feel good for collectibles. Once picked up, the corresponding inventory
+    // bit is enabled and the world object is hidden.
 
     // --------------------------------------------------
     // Bean sprout pickup in home
@@ -1985,7 +2069,43 @@ static void updateCollectibleAnimations(void) {
 // --------------------------------------------------
 // Build HUD inventory text.
 // --------------------------------------------------
+// --------------------------------------------------
+// Cheat: give the next required progression resource.
+// bonemeal comes first, then water.
+//
+// If bonemeal is already owned or has already been deposited,
+// the cheat skips straight to water.
+// --------------------------------------------------
+static void giveNextResourceCheat(void) {
+    // Bonemeal is the next needed item until it has either:
+    // - been collected into inventory, or
+    // - already been deposited into the beanstalk progression
+    if ((beanstalkGrowthStage < 2) && ((inventoryFlags & INVENTORY_BONEMEAL) == 0)) {
+        inventoryFlags |= INVENTORY_BONEMEAL;
+
+        // If the bonemeal pickup is currently visible in Level 1,
+        // remove it from the world so the cheat doesn't duplicate it.
+        bonemeal.active = 0;
+        return;
+    }
+
+    // Otherwise, water is the next needed item.
+    // This can be added even if bonemeal is still sitting in inventory,
+    // so both items can be held at the same time.
+    if ((inventoryFlags & INVENTORY_WATER) == 0) {
+        inventoryFlags |= INVENTORY_WATER;
+
+        // Hide the world pickup if it is still active in Level 2.
+        waterDroplet.active = 0;
+    }
+}
+
 static const char* getInventoryText(void) {
+    // Build the HUD string that lists the items currently in the inventory bitmask.
+    //
+    // Inventory is stored as a bitmask rather than separate booleans so the
+    // player can hold multiple resources at once. Each item corresponds to one
+    // bit, which makes checks, adds, removes, and HUD rendering simple.
     // Build the HUD string that lists the items currently in the inventory bitmask.
     static char buffer[48];
 
@@ -2018,7 +2138,11 @@ static const char* getInventoryText(void) {
 // ======================================================
 static void drawGameplay(void) {
     // Restore and animate the sky palette during gameplay.
-    // This ensures gameplay never gets stuck using the menu green background.
+    //
+    // Rendering order here is intentional: palette update first, HUD redraw,
+    // background offsets next, then sprites. This keeps the screen consistent
+    // and prevents stale menu colors or stale sprite positions from carrying
+    // over into gameplay.
     updateDaytimePalette();
 
     // Refresh HUD text, scroll the animated cloud layer plus the foreground,
@@ -2033,6 +2157,12 @@ static void drawGameplay(void) {
 
 static void drawSprites(void) {
     // Write the current frame's sprite attributes into shadow OAM.
+    //
+    // The sprites are drawn in screen space, not world space, so every sprite
+    // position is converted by subtracting the camera offsets first. The tile
+    // index chooses the correct frame, while the palette row chooses the color
+    // bank. That is why the player and world items can share OBJ memory cleanly
+    // but still use different colors.
     int screenX = player.x - hOff;
     int screenY = player.y - vOff;
 
@@ -2173,6 +2303,10 @@ static void hideSprite(int index) {
 // ======================================================
 static void drawHudText(void) {
     // Draw the current level label and inventory readout on the HUD layer.
+    //
+    // BG0 is reserved for text so UI remains stable even while BG1/BG2 scroll.
+    // That means HUD text does not move with the camera and can be cleared and
+    // redrawn each frame without disturbing the map art.
     if (currentLevel == LEVEL_HOME) {
         putText(1, 1, "HOMEBASE");
     } else if (currentLevel == LEVEL_ONE) {
