@@ -147,9 +147,9 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 ### Cheats / Debug Features
 
-* Toggleable cheat mode
-* **Invincibility cheat** (player cannot die)  
-* **Visual indicator when cheats are enabled in the HUD
+* Toggleable debug mode
+* **Invincibility debug** (player cannot die)  
+* **Visual indicator when this is enabled in the HUD
 
 * Instant resource cheat
 * **Instantly grant next required resource
@@ -209,12 +209,14 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 
 * Directional signs in levels for guidance for the player
 * Themed UI screens for Start, Instructions, Pause & Win / Lose  
+* Refactored the codebase to clean up game.c & organize the code better
 
 #### Need to Fix
 
 NONE!
 
 #### TODO
+
 * Background music (digital sound)
 * Action sound effects (digital sound)
 
@@ -226,6 +228,7 @@ NONE!
 ---
 
 ## Known Issuese
+
 NONE :P
 
 ---

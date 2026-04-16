@@ -31,7 +31,7 @@
 #define BEE_WIDTH           16
 #define BEE_HEIGHT          24
 #define BEE_ANIM_FRAMES      3
-#define BEE_TILES_PER_FRAME  6   // 2 x 3 tiles
+#define BEE_TILES_PER_FRAME  6   
 #define BEE_PATROL_SPEED     1
 
 #define GRAVITY              1
@@ -92,7 +92,7 @@
 // frame 3 = x 6
 // ------------------------------------------------------
 #define PLAYER_ANIM_FRAMES      4
-#define PLAYER_TILES_PER_FRAME  8   // 2 x 4 tiles
+#define PLAYER_TILES_PER_FRAME  8  
 
 #define OBJ_TILE_PLAYER_RIGHT   0
 #define OBJ_TILE_PLAYER_LEFT    (OBJ_TILE_PLAYER_RIGHT + PLAYER_ANIM_FRAMES * PLAYER_TILES_PER_FRAME)
@@ -146,7 +146,7 @@
 #define RESOURCE_WIDTH           16
 #define RESOURCE_HEIGHT          16
 #define RESOURCE_ANIM_FRAMES      2
-#define RESOURCE_TILES_PER_FRAME  4   // 2 x 2 tiles
+#define RESOURCE_TILES_PER_FRAME  4   
 
 #define OBJ_TILE_BONEMEAL        (OBJ_TILE_BEAN_SPROUT + BEAN_SPROUT_TILES)
 #define OBJ_TILE_WATER           (OBJ_TILE_BONEMEAL + RESOURCE_ANIM_FRAMES * RESOURCE_TILES_PER_FRAME)
