@@ -3,6 +3,7 @@
 #include "tileset.h"
 #include "spriteSheet.h"
 #include "homebase_foreground.h"
+#include "title.h"
 
 // ======================================================
 //                FILE-SCOPE GAME STATE
@@ -66,6 +67,7 @@ static void drawTitleScreen(void);
 static void drawInstructionsPage(void);
 static void enableGameplayDisplay(void);
 static void enableMenuDisplay(void);
+static void loadMenuBackground(void);
 static void goToStart(void);
 static void goToInstructions(void);
 static void goToHome(int respawn);
@@ -168,14 +170,7 @@ static void copySpriteBlockFromSheet(const unsigned short* sheetTiles, int sheet
 //                RUNTIME DAYTIME PALETTE CYCLE
 // ======================================================
 // Instead of swapping out whole background graphics for each time of day,
-// this game changes the sky at runtime by rewriting palette memory. That is
-// much cheaper than reloading maps or tiles and works well because the sky is
-// represented by a palette color rather than unique pixel art per frame.
-//
-// Demo explanation:
-// I keep the background art the same, but I animate the sky by changing
-// palette index 0 over time. Since the GBA tilemap references palette colors,
-// updating one entry instantly recolors every tile using that index.
+// just change the sky at runtime by rewriting palette memory
 static unsigned short lerpSkyColor(unsigned short startColor, unsigned short endColor, int step, int totalSteps) {
     // Linearly interpolate between two GBA 15-bit colors.
     // Each channel is 5 bits: RRRRRGGGGGBBBBB in the RGB() helper layout.
@@ -238,12 +233,13 @@ static void updateDaytimePalette(void) {
 }
 
 static void setMenuPalette(void) {
-    // Override palette index 0 with a fixed green color for menus.
-    // This prevents the daytime cycle from affecting UI screens.
-    BG_PALETTE[0] = MENU_BG_COLOR;
+    // Restore the tileset's original palette color at BG palette index 0
+    // so the menu background tilemap uses the intended artwork colors.
+    BG_PALETTE[0] = tilesetPal[0];
 
-    // Keep font transparency consistent with the background
-    BG_PALETTE[FONT_PALROW * 16 + 0] = MENU_BG_COLOR;
+    // Match the font background entry to the same palette color so text
+    // still blends correctly with the tilemap behind it.
+    BG_PALETTE[FONT_PALROW * 16 + 0] = tilesetPal[0];
 }
 
 // ======================================================
@@ -531,6 +527,27 @@ static void initGraphics(void) {
     initObjAssets();
 }
 
+static void loadMenuBackground(void) {
+    // Use BG1 as a static decorative background for all menu/state screens.
+    // This map was built with the same tileset already loaded into charblock 1,
+    // so we only need to configure BG1 and copy the tilemap into its screenblock.
+
+    // Clear the screenblock first so no old map data lingers underneath.
+    clearScreenblock(BG_BACK_SB_A);
+
+    // BG1 will show a simple 32x32 tile map for the menu background.
+    setupBackground(
+        1,
+        BG_PRIORITY(1) | BG_CHARBLOCK(1) | BG_SCREENBLOCK(BG_BACK_SB_A) | BG_4BPP | BG_SIZE_SMALL
+    );
+
+    // Copy the full 32x32 title/menu map into BG1's screenblock.
+    DMANow(3, (void*)titleMap, SCREENBLOCK[BG_BACK_SB_A].tilemap, 1024);
+
+    // Keep the menu background anchored to the screen.
+    setBackgroundOffset(1, 0, 0);
+}
+
 static void enableGameplayDisplay(void) {
     // Turn on the background and sprite layers used during active gameplay.
     // BG0 = HUD text
@@ -542,13 +559,17 @@ static void enableGameplayDisplay(void) {
 }
 
 static void enableMenuDisplay(void) {
-    // Show only the text layer for menu-style screens and hide all sprites.
-    // Menu/state screens only need BG0 text.
-    // The green backdrop color will fill the rest of the screen.
-    REG_DISPCTL = MODE(0) | BG_ENABLE(0);
+    // Menu/state screens use:
+    // BG0 = text
+    // BG1 = decorative title/menu background tilemap
+    REG_DISPCTL = MODE(0) | BG_ENABLE(0) | BG_ENABLE(1);
 
-    // Keep menu text positioned correctly.
+    // Load the shared menu background each time we enter a menu-style state.
+    loadMenuBackground();
+
+    // Keep both visible menu layers fixed on screen.
     setBackgroundOffset(0, 0, 0);
+    setBackgroundOffset(1, 0, 0);
 
     // Hide sprites so stale OBJ art never lingers on menu screens.
     hideSprites();
@@ -869,12 +890,26 @@ static void updateLevelTwo(void) {
 static void updatePause(void) {
     // Pause input: resume gameplay or return to the title screen.
     if (BUTTON_PRESSED(BUTTON_START)) {
+        // Go back to the gameplay state we were in before pausing.
         state = gameplayStateBeforePause;
+
+        // Rebuild BG1/BG2 for the active level.
+        // This is important because the pause screen reused BG1 for the
+        // title/menu tilemap, so we must restore the real gameplay maps.
+        configureMapBackgroundsForLevel(currentLevel);
+        loadLevelMaps(currentLevel);
+
+        // Turn gameplay layers back on.
         enableGameplayDisplay();
 
-        // Restore the animated gameplay sky palette after leaving the pause menu.
+        // Restore the gameplay palette now that we are leaving the menu.
         updateDaytimePalette();
 
+        // Reapply the current scroll offsets so the camera resumes exactly
+        // where it was before pausing.
+        applyBackgroundOffsets();
+
+        // Redraw HUD text cleanly on BG0.
         clearHud();
     }
 
@@ -1013,13 +1048,6 @@ static void updatePlayerMovement(void) {
     // Movement is not applied in one big jump. Horizontal and vertical motion
     // are both resolved one pixel at a time, which makes collision much more
     // reliable around tile edges, short platforms, ladders, and ledges.
-    //
-    // Demo explanation:
-    // I read the controls, decide whether the player is walking, jumping,
-    // falling, or climbing, and then I move them pixel-by-pixel. At each step
-    // I ask whether the next position is legal. That keeps the player from
-    // tunneling through walls and helps the tall sprite land correctly on
-    // narrow platforms.
     int dx = 0;
     int step;
     int remaining;
@@ -1287,15 +1315,8 @@ static void applyBackgroundOffsets(void) {
 // ======================================================
 //        HOME BEANSTALK / FARMLAND DYNAMIC VISUALS
 // ======================================================
-// The home map is not completely static. Once resources are deposited, this
-// code edits the live foreground tilemap at runtime so the farmland and
-// beanstalk visibly change.
-//
-// Demo explanation:
-// The original home map is my baseline. When the player deposits items, I
-// directly overwrite selected tilemap entries in VRAM so the farmland changes
-// appearance and the beanstalk appears to grow without loading a new map.
-// Read a tile entry out of the original exported home foreground map.
+// The home map is not completely static. Once resources are deposited, edit the live 
+// foreground tilemap at runtime so the farmland and beanstalk visibly change.
 static unsigned short getHomeForegroundSourceEntry(int tileX, int tileY) {
     if (tileX < 0 || tileX >= HOME_MAP_W || tileY < 0 || tileY >= HOME_MAP_H) {
         return 0;
@@ -1747,15 +1768,9 @@ static int isAtTopOfClimb(int x, int y) {
 //
 // If no fully-clear position exists within the scan range (e.g. solid
 // ceiling directly above), still leave climb mode and apply the boost
-// so that the player is not permanently trapped.
+// so that the player is not permanently trapped
 static int tryStartLadderTopExit(void) {
     // Pop the player upward off the ladder so they can step onto the platform above.
-    //
-    // Demo explanation:
-    // When the player reaches the top of a ladder, I scan upward to find the
-    // first position that is both non-solid and no longer overlapping climb
-    // tiles. Then I move the player there and apply a small upward velocity so
-    // they cleanly arc onto the platform instead of getting stuck.
     int pop;
 
     // Scan upward. Try to find a spot where:
@@ -1778,7 +1793,7 @@ static int tryStartLadderTopExit(void) {
         }
     }
 
-    // Fallback: no clean gap found (tight ceiling, etc.).
+    // Fallback just in case: no clean gap found (tight ceiling, etc.).
     // Still force-exit climb mode so the player is never permanently stuck.
     player.climbing = 0;
     player.grounded = 0;
@@ -1856,11 +1871,9 @@ static int touchesWinTile(void) {
 static void handleLevelTransitions(void) {
     // Check collision-map transition markers under the player and swap maps when needed.
     //
-    // Transitions are data-driven through collision-map palette indices. The
-    // gameplay code does not look for decorative art tiles. It reads the exact
-    // collision value under the player's feet and chooses the destination spawn
-    // based on that marker. That makes portals and doors easy to move by just
-    // editing the collision map.
+    // Transitions are data-driven through collision-map palette indices.
+    // It reads the exact collision value under the player's feet and chooses the destination spawn
+    // based on that marker. There are 6 transitions
     int leftX   = player.x + 2;
     int centerX = player.x + (player.width / 2);
     int rightX  = player.x + player.width - 3;
@@ -2052,7 +2065,7 @@ static void updateBees(void) {
             bee->dir *= -1;
             nextX = bee->x + bee->dir * BEE_PATROL_SPEED;
 
-            // If both directions are blocked, stay put.
+            // If both directions are blocked, stay put
             if (nextX < bee->minX || nextX > bee->maxX || !canBeeMoveTo(nextX, bee->y)) {
                 continue;
             }
@@ -2063,6 +2076,7 @@ static void updateBees(void) {
 }
 
 static int playerTouchesBee(void) {
+    // collision checks for the bee
     for (int i = 0; i < beeCount; i++) {
         if (bees[i].active && rectsOverlap(
                 player.x, player.y, player.width, player.height,
@@ -2146,9 +2160,8 @@ static int rectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, 
 static void updateCollectibles(void) {
     // Handle item pickup logic for all active collectibles in the world.
     //
-    // Pickups use simple AABB overlap checks because they are forgiving and
-    // feel good for collectibles. Once picked up, the corresponding inventory
-    // bit is enabled and the world object is hidden.
+    // Pickups use simple AABB overlap checks because they are forgiving 
+    // Once picked up, the corresponding inventory bit is enabled and the world object is hidden.
 
     // --------------------------------------------------
     // Bean sprout pickup in home
@@ -2221,7 +2234,7 @@ static void updateCollectibleAnimations(void) {
 // bonemeal comes first, then water.
 //
 // If bonemeal is already owned or has already been deposited,
-// the cheat skips straight to water.
+// the cheat skips straight to the water droplet.
 // --------------------------------------------------
 static void giveNextResourceCheat(void) {
     // Bonemeal is the next needed item until it has either:
@@ -2285,11 +2298,6 @@ static const char* getInventoryText(void) {
 // ======================================================
 static void drawGameplay(void) {
     // Restore and animate the sky palette during gameplay.
-    //
-    // Rendering order here is intentional: palette update first, HUD redraw,
-    // background offsets next, then sprites. This keeps the screen consistent
-    // and prevents stale menu colors or stale sprite positions from carrying
-    // over into gameplay.
     updateDaytimePalette();
 
     // Refresh HUD text, scroll the animated cloud layer plus the foreground,
@@ -2531,6 +2539,8 @@ static void drawHudText(void) {
 }
 
 static void drawTitleScreen(void) {
+    // The title artwork itself is now the BG1 tilemap.
+    // This function only draws the overlay text on BG0.
     clearHud();
     putText(8, 6, "BEYOND THE SKY");
     putText(8, 8, "COZY FARM GAME");

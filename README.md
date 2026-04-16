@@ -200,41 +200,29 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 * Smooth animated daylight cycle (palette modification at runtime)
 * Get instant resource cheat
 * Updated Spritesheet with player animations
-* Added bee sprite to the game with animations (still a work in progress)
+* Added bee sprite to the game with animations
 * Enemy game logic with the bee sprite
 
 ---
 
 ### Milestone Three
 
+* Directional signs in levels for guidance for the player
+
 #### Need to Fix
 
 NONE!
 
 #### TODO
-
-#### Sprites & Animation
-
-* Add sun sprite and animation synced with daytime cycle
-
-#### Levels
-
-* Add moving platforms in Level 1 and Level 2
-
-#### Sound
-
 * Background music (digital sound)
 * Action sound effects (digital sound)
 
-#### Polish / Nice-to-Haves
+#### Polish Additions
 
-* Themed “sign-style” UI screens:
-  * Start  
-  * Instructions  
-  * Pause  
-  * Win / Lose  
-
-* Directional signs in levels for guidance
+* Themed UI screens for Start, Instructions, Pause & Win / Lose  
+Drawn right now, but need to be implemented into the game
+* Add sun sprite and animation synced with daytime cycle
+* Add moving platforms in Level 1 and Level 2
 
 ---
 
