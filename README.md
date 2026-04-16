@@ -208,6 +208,7 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 ### Milestone Three
 
 * Directional signs in levels for guidance for the player
+* Themed UI screens for Start, Instructions, Pause & Win / Lose  
 
 #### Need to Fix
 
@@ -219,8 +220,6 @@ NONE!
 
 #### Polish Additions
 
-* Themed UI screens for Start, Instructions, Pause & Win / Lose  
-Drawn right now, but need to be implemented into the game
 * Add sun sprite and animation synced with daytime cycle
 * Add moving platforms in Level 1 and Level 2
 
