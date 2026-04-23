@@ -27,6 +27,18 @@
 // ======================================================
 //                STATE / SCREEN TRANSITIONS
 // ======================================================
+// Removes the level-specific resource when the player dies in that level.
+// This keeps progression a little stricter: if you grab the level item but
+// die before successfully getting out, you have to earn that pickup again
+static void dropLevelResourceOnDeath(int levelToReturnTo) {
+    // Home does not need this behavior because the bean sprout is part of the
+    // hub setup, not a full side-level completion reward.
+    if (levelToReturnTo == LEVEL_ONE) {
+        inventoryFlags &= ~INVENTORY_BONEMEAL;
+    } else if (levelToReturnTo == LEVEL_TWO) {
+        inventoryFlags &= ~INVENTORY_WATER;
+    }
+}
 
 // Switches the game into the title screen state and prepares the menu display. It resets the visible text layer for a clean title screen
 void goToStart(void) {
@@ -268,6 +280,14 @@ void goToWin(void) {
 
 // switches the game into the lose state and records which level the player should return to when they respawn.
 void goToLose(int levelToReturnTo) {
+    // If the player dies inside a resource level after grabbing its item,
+    // drop that level's pickup so they have to complete the level again.
+    if (levelToReturnTo == LEVEL_ONE) {
+        inventoryFlags &= ~INVENTORY_BONEMEAL;
+    } else if (levelToReturnTo == LEVEL_TWO) {
+        inventoryFlags &= ~INVENTORY_WATER;
+    }
+
     // Switch to the lose screen and remember which level should be reloaded on respawn.
     loseReturnLevel = levelToReturnTo;
     state = STATE_LOSE;

@@ -45,6 +45,11 @@
 // Useful clamp macro
 #define CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))
 
+// BG map entries store the 4bpp palette row in bits 12-15.
+#define BG_TILE_PALROW(row)    (((row) & 0xF) << 12)
+
+// Keep tile index + flip bits, replace only the palette row.
+#define BG_TILE_ATTR_MASK      0x0FFF
 // ======================================================
 //                    OBJ TILE INDICES
 // ======================================================
@@ -195,6 +200,7 @@
 // LEVEL 1 -> HOME (top/platform return)
 #define HOME_FROM_LEVEL1_TOP_SPAWN_X        (6 * 8)
 #define HOME_FROM_LEVEL1_TOP_PREF_Y         (LEVEL1_PIXEL_H - (8 * 8))
+
 // ------------------------------------------------------
 // LEVEL 2 TRANSITION SPAWNS
 // ------------------------------------------------------
@@ -324,6 +330,16 @@
 #define PARTIAL_TOP_DEST_X                   22
 #define PARTIAL_TOP_DEST_Y                   17
 
+// Default palette row used by normal home foreground tiles.
+#define HOME_FOREGROUND_PALROW          1
+
+// The castle in homebase uses its own palette row in the tileset.
+// These tilemap coordinates are in map-space, not tileset-space.
+#define HOME_CASTLE_PALROW              2
+#define HOME_CASTLE_TILE_LEFT           5
+#define HOME_CASTLE_TILE_RIGHT         14
+#define HOME_CASTLE_TILE_TOP            1
+#define HOME_CASTLE_TILE_BOTTOM         7
 // ======================================================
 //                    GAME STATE
 // ======================================================

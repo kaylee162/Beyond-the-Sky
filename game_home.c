@@ -58,15 +58,36 @@ void setHomeForegroundTileEntry(int tileX, int tileY, unsigned short entry) {
     targetMap[localY * 32 + tileX] = entry;
 }
 
-// Copies a rectangular block of tiles from the tileset into the home foreground map. It is used to swap farmland and beanstalk art at runtime
+// Draws a rectangular block of tiles into the home foreground map using tiles
+// from the shared tileset. Runtime-written home tiles use the standard home
+// foreground palette row, and special cases like the castle are patched after.
 void drawHomeTileBlockFromTileset(int mapTileX, int mapTileY, int srcTileX, int srcTileY, int widthTiles, int heightTiles) {
     int row;
     int col;
 
     for (row = 0; row < heightTiles; row++) {
         for (col = 0; col < widthTiles; col++) {
-            unsigned short tileId = (unsigned short)(((srcTileY + row) * 32) + (srcTileX + col));
-            setHomeForegroundTileEntry(mapTileX + col, mapTileY + row, tileId);
+            unsigned short tileId = (unsigned short)((srcTileY + row) * 32 + (srcTileX + col));
+            unsigned short entry = tileId | BG_TILE_PALROW(HOME_FOREGROUND_PALROW);
+            setHomeForegroundTileEntry(mapTileX + col, mapTileY + row, entry);
+        }
+    }
+}
+
+// Reapplies the castle's special palette row in the home foreground map.
+// Everything else in home uses the normal row 1 art, but the castle tiles
+// need to read from palette row 2.
+static void applyHomeCastlePaletteRow(void) {
+    int row;
+    int col;
+
+    for (row = HOME_CASTLE_TILE_TOP; row <= HOME_CASTLE_TILE_BOTTOM; row++) {
+        for (col = HOME_CASTLE_TILE_LEFT; col <= HOME_CASTLE_TILE_RIGHT; col++) {
+            unsigned short entry = getHomeForegroundSourceEntry(col, row);
+
+            // Preserve the tile index and flip bits, only replace the palette row.
+            entry = (entry & 0x0FFF) | BG_TILE_PALROW(HOME_CASTLE_PALROW);
+            setHomeForegroundTileEntry(col, row, entry);
         }
     }
 }
@@ -201,7 +222,12 @@ void refreshHomeBeanstalkVisuals(void) {
             PARTIAL_TOP_HEIGHT
         );
     }
+
+    // Reapply the castle's special palette row after rebuilding home visuals.
+    // The rest of the map stays on the normal home foreground palette row.
+    applyHomeCastlePaletteRow();
 }
+
 
 // Checks whether the player is standing in the farmland interaction area. Deposit logic uses this to decide when resource placement is allowed
 int isPlayerAtFarmland(void) {
