@@ -74,20 +74,31 @@ void drawHomeTileBlockFromTileset(int mapTileX, int mapTileY, int srcTileX, int 
     }
 }
 
-// Reapplies the castle's special palette row in the home foreground map.
-// Everything else in home uses the normal row 1 art, but the castle tiles
-// need to read from palette row 2.
 static void applyHomeCastlePaletteRow(void) {
     int row;
     int col;
 
     for (row = HOME_CASTLE_TILE_TOP; row <= HOME_CASTLE_TILE_BOTTOM; row++) {
         for (col = HOME_CASTLE_TILE_LEFT; col <= HOME_CASTLE_TILE_RIGHT; col++) {
-            unsigned short entry = getHomeForegroundSourceEntry(col, row);
+            volatile unsigned short* targetMap;
+            int localY;
+            unsigned short entry;
 
-            // Preserve the tile index and flip bits, only replace the palette row.
-            entry = (entry & 0x0FFF) | BG_TILE_PALROW(HOME_CASTLE_PALROW);
-            setHomeForegroundTileEntry(col, row, entry);
+            if (row < 32) {
+                targetMap = SCREENBLOCK[BG_FRONT_SB_A].tilemap;
+                localY = row;
+            } else {
+                targetMap = SCREENBLOCK[BG_FRONT_SB_B].tilemap;
+                localY = row - 32;
+            }
+
+            // Read what is actually on screen right now.
+            entry = targetMap[localY * 32 + col];
+
+            // Keep tile ID + flip bits, replace only palette row bits.
+            entry = (entry & BG_TILE_ATTR_MASK) | BG_TILE_PALROW(HOME_CASTLE_PALROW);
+
+            targetMap[localY * 32 + col] = entry;
         }
     }
 }

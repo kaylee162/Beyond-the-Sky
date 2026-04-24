@@ -331,11 +331,11 @@
 #define PARTIAL_TOP_DEST_Y                   17
 
 // Default palette row used by normal home foreground tiles.
-#define HOME_FOREGROUND_PALROW          1
+#define HOME_FOREGROUND_PALROW          0
+#define HOME_CASTLE_PALROW              1
 
 // The castle in homebase uses its own palette row in the tileset.
 // These tilemap coordinates are in map-space, not tileset-space.
-#define HOME_CASTLE_PALROW              2
 #define HOME_CASTLE_TILE_LEFT           5
 #define HOME_CASTLE_TILE_RIGHT         14
 #define HOME_CASTLE_TILE_TOP            1

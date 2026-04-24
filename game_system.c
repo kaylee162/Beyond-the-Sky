@@ -160,14 +160,17 @@ void setMenuPalette(void) {
 
 // loads the shared background graphics and prepares the font palette row. This establishes the base tile and palette data used by the game's background layers
 void initBgAssets(void) {
-    // Load the gameplay tileset palette and tile graphics into BG memory.
+    // Load the full 256-entry BG palette exactly as grit exported it.
+    // Row 0 = normal tiles
+    // Row 1 = castle tiles
     DMANow(3, (void*)tilesetPal, BG_PALETTE, tilesetPalLen / 2);
+
+    // Load the shared 4bpp background tiles.
     DMANow(3, (void*)tilesetTiles, CHARBLOCK[1].tileimg, tilesetTilesLen / 2);
 
-    // Give the font its own stable visible color in its dedicated palette row.
+    // Font uses its own row, so keep its visible text color stable.
     BG_PALETTE[FONT_PALROW * 16 + 1] = FONT_COLOR;
 
-    // Initialize the sky/backdrop color right away for a correct first frame.
     updateDaytimePalette();
 }
 
