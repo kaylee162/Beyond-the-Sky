@@ -210,12 +210,11 @@ The gameplay loop focuses on exploration, resource collection, and vertical prog
 * Directional signs in levels for guidance for the player
 * Themed UI screens for Start, Instructions, Pause & Win / Lose  
 * Refactored the codebase to clean up game.c & organize the code better
-* Added a castle at the top of the level (need to fix pal)
+* Added a castle at the top of the level
 * If you collect a resource, and die inside a level, you lose the resource and have to complete the level again. 
 
 #### Need to Fix
 
-The castle palette is messed up (its using fully pal row 2)
 
 #### TODO
 

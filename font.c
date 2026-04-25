@@ -2327,36 +2327,43 @@ static inline volatile unsigned int* tilePtr(int charblock, int tileIndex) {
 static int gFontCharblock = 0;
 static int gFontTileBase = 0;
 
-// Convert ONE 6x8 glyph from fontdata into an 8x8 4bpp tile.
-// - We place the 6 columns in x = 0..5
-// - x = 6..7 stays 0
-// - palette index 1 is the visible text color
+static void setTilePixel(unsigned char outTile32Bytes[32], int x, int y, unsigned char val) {
+    if (x < 0 || x >= 8 || y < 0 || y >= 8) {
+        return;
+    }
+
+    int byteIndex = (y * 4) + (x / 2);
+
+    if ((x & 1) == 0) {
+        outTile32Bytes[byteIndex] =
+            (outTile32Bytes[byteIndex] & 0xF0) | (val & 0x0F);
+    } else {
+        outTile32Bytes[byteIndex] =
+            (outTile32Bytes[byteIndex] & 0x0F) | ((val & 0x0F) << 4);
+    }
+}
+
 static void buildGlyphTile(unsigned char outTile32Bytes[32], unsigned char ch) {
-    // Clear entire tile to palette index 0.
     for (int i = 0; i < 32; i++) {
         outTile32Bytes[i] = 0;
     }
 
-    // Each character uses 48 bytes: 8 rows * 6 columns.
     const int base = ((int)ch) * 48;
 
     for (int y = 0; y < 8; y++) {
         for (int x = 0; x < 6; x++) {
             unsigned char pix = fontdata[base + (y * 6) + x];
-            unsigned char val = pix ? 1 : 0;  // 1 = text pixel, 0 = background
 
-            // In a 4bpp tile, each byte stores 2 pixels:
-            // low nibble = even x, high nibble = odd x
-            int byteIndex = (y * 4) + (x / 2);
+            if (pix) {
+                int byteIndex = (y * 4) + (x / 2);
 
-            if ((x & 1) == 0) {
-                // even x -> low nibble
-                outTile32Bytes[byteIndex] =
-                    (outTile32Bytes[byteIndex] & 0xF0) | (val & 0x0F);
-            } else {
-                // odd x -> high nibble
-                outTile32Bytes[byteIndex] =
-                    (outTile32Bytes[byteIndex] & 0x0F) | ((val & 0x0F) << 4);
+                if ((x & 1) == 0) {
+                    outTile32Bytes[byteIndex] =
+                        (outTile32Bytes[byteIndex] & 0xF0) | 1;
+                } else {
+                    outTile32Bytes[byteIndex] =
+                        (outTile32Bytes[byteIndex] & 0x0F) | (1 << 4);
+                }
             }
         }
     }
@@ -2381,8 +2388,6 @@ void fontInit(int charblock, int tileBase) {
         }
     }
 
-    // Put the visible font color into palette index 1 of FONT_PALROW.
-    // Palette slot 0 in that row stays 0, which is fine for the "off" pixels.
     BG_PALETTE[FONT_PALROW * 16 + 1] = FONT_COLOR;
 }
 

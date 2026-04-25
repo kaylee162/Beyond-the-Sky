@@ -281,11 +281,8 @@ void hideSprite(int index) {
 
 // draws the HUD labels for the current level, inventory, and cheat status. It refreshes the text layer after gameplay state changes
 void drawHudText(void) {
-    // Draw the current level label and inventory readout on the HUD layer.
-    //
-    // BG0 is reserved for text so UI remains stable even while BG1/BG2 scroll.
-    // That means HUD text does not move with the camera and can be cleared and
-    // redrawn each frame without disturbing the map art.
+    clearHud();
+
     if (currentLevel == LEVEL_HOME) {
         putText(1, 1, "HOMEBASE");
     } else if (currentLevel == LEVEL_ONE) {
@@ -294,12 +291,10 @@ void drawHudText(void) {
         putText(1, 1, "LEVEL 2");
     }
 
-    // Show cheat status only when cheat mode is enabled.
     if (cheatModeEnabled) {
         putText(16, 1, "DEBUG ENABLED");
     }
 
-    // Draw the inventory label and the current inventory contents.
     putText(1, 3, "INVENTORY:");
     putText(1, 5, getInventoryText());
 }
@@ -309,9 +304,9 @@ void drawTitleScreen(void) {
     // The title artwork itself is the BG1 tilemap.
     // This function only draws the overlay text on BG0.
     clearHud();
-    putText(8, 6, "BEYOND THE SKY");
-    putText(8, 8, "COZY FARM GAME");
-    putText(9, 14, "PRESS START");
+    putText(9, 6, "BEYOND THE SKY");
+    putText(9, 8, "COZY FARM GAME");
+    putText(10, 14, "PRESS START"); //9,14
 }
 
 // draws the instructions text for the current page. It reuses the menu background and only updates the text layer
@@ -325,7 +320,7 @@ void drawInstructionsPage(void) {
         putText(7, 4, "INSTRUCTIONS 1/2");
         putText(8, 8,"LEFT/RIGHT MOVE");
         putText(4, 10, "UP/DOWN JUMP OR CLIMB");
-        putText(7, 16, "A NEXT  B BACK");
+        putText(8, 15, "< BACK    NEXT >");
     } else {
         // Page 2 explains the main progression loop of the game.
         clearHud();
@@ -333,7 +328,7 @@ void drawInstructionsPage(void) {
         putText(7, 8, "FINISH LEVELS TO");
         putText(4, 10, "GET RESOURCES, RETURN");
         putText(3, 12, "HOME & PRESS B ON SOIL");
-        putText(6, 16, "B PREV  START PLAY");
+        putText(6, 16, "< PREV   START PLAY");
     }
 }
 
@@ -341,7 +336,7 @@ void drawInstructionsPage(void) {
 void drawPauseScreen(void) {
     // Draw pause text and hide gameplay sprites while paused.
     clearHud();
-    putText(9, 7, "PAUSED GAME");
+    putText(10, 7, "PAUSED GAME");
     putText(7, 11, "START TO RESUME"); 
     putText(2, 14, "SELECT TO RETURN TO TITLE"); 
     hideSprites();
@@ -355,6 +350,5 @@ void clearHud(void) {
 
 // Writes a string to the HUD text layer at the given tile position. This is the basic helper used for menus and on-screen labels
 void putText(int col, int row, const char* str) {
-    // Convenience wrapper for drawing a string into the HUD screenblock.
     fontDrawString(HUD_SCREENBLOCK, col, row, str);
 }

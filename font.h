@@ -4,10 +4,8 @@
 #include <stddef.h>
 #include "gba.h"
 
-// Put font on its own BG palette row
-#define FONT_PALROW 15
+#define FONT_PALROW 14
 
-// Visible font color inside that palette row
 #define FONT_COLOR RGB(0, 0, 0)
 
 // The array of character data (256 chars * 6 * 8 = 12288)

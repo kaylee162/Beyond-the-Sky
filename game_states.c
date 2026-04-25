@@ -321,13 +321,14 @@ void updateStart(void) {
 }
 
 // handles input for moving between instruction pages or returning to the title screen
+// handles input for moving between instruction pages or returning to the title screen
 void updateInstructions(void) {
     // Instructions flow:
-    // A = next
-    // B = back
+    // LEFT  = previous / back to title from page 1
+    // RIGHT = next page
     // START = begin the game
 
-    if (BUTTON_PRESSED(BUTTON_B)) {
+    if (BUTTON_PRESSED(BUTTON_LEFT)) {
         if (instructionsPage == 0) {
             // From page 1, go back to the title screen.
             goToStart();
@@ -340,7 +341,7 @@ void updateInstructions(void) {
         return;
     }
 
-    if (BUTTON_PRESSED(BUTTON_A)) {
+    if (BUTTON_PRESSED(BUTTON_RIGHT)) {
         if (instructionsPage == 0) {
             // From page 1, go to page 2.
             instructionsPage = 1;
