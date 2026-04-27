@@ -103,46 +103,62 @@ unsigned short lerpSkyColor(unsigned short startColor, unsigned short endColor, 
     return RGB(r, g, b);
 }
 
-// Updates the active sky color for the current frame and writes it into the background palette. It also keeps the HUD text background entry matched to that same color.
+// Updates the active sky color for the current frame and writes it into
+// the background palette. It also keeps both font systems synced so text
+// transparency/background pixels blend into the animated sky color.
 void updateDaytimePalette(void) {
-    // Animate the backdrop by rewriting BG palette index 0 each frame.
+    // Total cycle = 4 transitions:
+    // morning -> day -> sunset -> night -> morning
     const int segmentLength = DAYTIME_CYCLE_SEGMENT_FRAMES;
     const int totalCycleLength = segmentLength * 4;
 
-    // Offset the frame count so a fresh run can begin at the intended time of day.
-    int cycleFrame = (frameCounter + DAYTIME_CYCLE_START_OFFSET_FRAMES) % totalCycleLength;
+    // Offset lets a fresh gameplay start begin at a chosen time of day.
+    int cycleFrame =
+        (frameCounter + DAYTIME_CYCLE_START_OFFSET_FRAMES) % totalCycleLength;
+
     int segmentFrame = cycleFrame % segmentLength;
 
     unsigned short startColor;
     unsigned short endColor;
 
     if (cycleFrame < segmentLength) {
-        // Early morning -> day
+        // Early morning -> bright day
         startColor = SKY_COLOR_EARLY_MORNING;
-        endColor = SKY_COLOR_DAY;
+        endColor   = SKY_COLOR_DAY;
+
     } else if (cycleFrame < segmentLength * 2) {
         // Day -> sunset
         startColor = SKY_COLOR_DAY;
-        endColor = SKY_COLOR_SUNSET;
+        endColor   = SKY_COLOR_SUNSET;
+
     } else if (cycleFrame < segmentLength * 3) {
         // Sunset -> night
         startColor = SKY_COLOR_SUNSET;
-        endColor = SKY_COLOR_NIGHT;
+        endColor   = SKY_COLOR_NIGHT;
+
     } else {
         // Night -> early morning
         startColor = SKY_COLOR_NIGHT;
-        endColor = SKY_COLOR_EARLY_MORNING;
+        endColor   = SKY_COLOR_EARLY_MORNING;
     }
 
-    // Compute the exact blended sky color for the current frame.
-    unsigned short currentSkyColor = lerpSkyColor(startColor, endColor, segmentFrame, segmentLength);
+    // Blend between the two colors for this section of the cycle.
+    unsigned short currentSkyColor =
+        lerpSkyColor(startColor, endColor, segmentFrame, segmentLength);
 
-    // BG palette index 0 acts as the visible sky/background color.
+    // Main world background color.
     BG_PALETTE[0] = currentSkyColor;
 
-    // Keep the font palette row's background/transparent entry synced so
-    // HUD text still blends correctly into the current backdrop color.
+    // Original menu/font system transparency entry.
     BG_PALETTE[FONT_PALROW * 16 + 0] = currentSkyColor;
+
+    // Custom HUD font transparency entry.
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 0] = currentSkyColor;
+
+    // Re-assert the custom HUD font visible colors in case another palette
+    // load overwrote them earlier.
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 1] = RGB(0, 0, 0);       // black fill
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 2] = RGB(31, 31, 31);    // white outline
 }
 
 // Restores the fixed menu palette colors so menu screens are not tinted by the runtime daytime cycle
@@ -150,8 +166,13 @@ void setMenuPalette(void) {
     // Restore the original tilemap background color for menu/state screens.
     BG_PALETTE[0] = tilesetPal[0];
 
-    // Match the font row's background entry to the same menu color.
+    // Match both font transparency colors to the menu background.
     BG_PALETTE[FONT_PALROW * 16 + 0] = tilesetPal[0];
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 0] = tilesetPal[0];
+
+    // Keep the HUD font's real colors alive in case the BG palette was reloaded.
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 1] = RGB(0, 0, 0);
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 2] = RGB(31, 31, 31);
 }
 
 // ======================================================
@@ -164,6 +185,10 @@ void initBgAssets(void) {
     // Row 0 = normal tiles
     // Row 1 = castle tiles
     DMANow(3, (void*)tilesetPal, BG_PALETTE, tilesetPalLen / 2);
+
+    // The main tileset palette reloads all 256 BG colors,
+    // so restore the custom HUD font colors afterward.
+    hudFontLoadPalette();
 
     // Load the shared 4bpp background tiles.
     DMANow(3, (void*)tilesetTiles, CHARBLOCK[1].tileimg, tilesetTilesLen / 2);
@@ -330,6 +355,11 @@ void initGraphics(void) {
 
     // Initialize text rendering, then load BG and OBJ assets.
     fontInit(0, 0);
+
+    // Load the custom HUD font after the normal menu font.
+    // It starts at tile 256 so title/menu text still uses the old font.
+    hudFontInit(0, HUD_CUSTOM_FONT_TILEBASE);
+
     initBgAssets();
     initObjAssets();
 }

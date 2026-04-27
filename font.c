@@ -1,4 +1,5 @@
 #include "font.h"
+#include "fontTiles.h"
 
 const unsigned char fontdata[12288] = {
 /* num: 0 */
@@ -2448,4 +2449,102 @@ void fontDrawString(int screenblock, int col, int row, const char* str) {
             break;
         }
     }
+}
+
+// Loads the custom HUD font tiles into BG tile memory.
+// This only sets up the gameplay HUD font, not the menu/title font.
+void hudFontInit(int charblock, int tileBase) {
+    // Tile 0 is A, tile 1 is B, etc.
+    gFontCharblock = charblock;
+
+    // Each BG charblock is 16KB apart in VRAM.
+    volatile unsigned short* dst =
+        (volatile unsigned short*)(CHARBLOCK_BASE + charblock * 0x4000);
+
+    // Each 4bpp tile is 32 bytes, which is 16 unsigned shorts.
+    dst += tileBase * 16;
+
+    // Copy the custom font tiles into the requested charblock/tile slot.
+    DMANow(3, (void*)fontTilesTiles, (void*)dst, fontTilesTilesLen / 2);
+
+    // Restore the HUD font palette row after loading the tiles.
+    // index 0 = transparent/background
+    // index 1 = black letters
+    // index 2 = white outline
+    hudFontLoadPalette();
+}
+
+static void hudFontPutChar(int screenblock, int col, int row, char c) {
+    if (col < 0 || col >= 32 || row < 0 || row >= 32) {
+        return;
+    }
+
+    volatile unsigned short* map =
+        (volatile unsigned short*)((unsigned char*)SCREENBLOCK_BASE
+        + SCREENBLOCK_OFFSET(screenblock));
+
+    // Spaces should draw nothing. Otherwise tile 0 would show up as A.
+    if (c == ' ') {
+        map[row * 32 + col] = 0;
+        return;
+    }
+
+    unsigned short tileId;
+
+    // Letters are stored first: A = 0, B = 1, ... Z = 25.
+    if (c >= 'A' && c <= 'Z') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + (c - 'A');
+
+    // Extra HUD/menu characters start immediately after Z.
+    // in order its:
+    // 1, 2, /, !, <, >, :, and ,
+    } else if (c == '1') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 26;
+    } else if (c == '2') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 27;
+    } else if (c == '/') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 28;
+    } else if (c == '!') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 29;
+    } else if (c == '<') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 30;
+    } else if (c == '>') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 31;
+    } else if (c == ':') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 32;
+    } else if (c == ',') {
+        tileId = HUD_CUSTOM_FONT_TILEBASE + 33;
+
+    // Unknown characters are ignored so they do not draw random tiles.
+    } else {
+        map[row * 32 + col] = 0;
+        return;
+    }
+
+    // The top 4 bits select the palette row for 4bpp BG tiles.
+    map[row * 32 + col] = tileId | (HUD_CUSTOM_FONT_PALROW << 12);
+}
+
+void hudFontDrawString(int screenblock, int col, int row, const char* str) {
+    if (!str) {
+        return;
+    }
+
+    int x = col;
+
+    while (*str) {
+        hudFontPutChar(screenblock, x, row, *str);
+        x++;
+        str++;
+    }
+}
+
+void hudFontLoadPalette(void) {
+    // Custom HUD font palette:
+    // index 0 = transparent/background
+    // index 1 = black text
+    // index 2 = white outline
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 0] = BG_PALETTE[0];
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 1] = RGB(0, 0, 0);
+    BG_PALETTE[HUD_CUSTOM_FONT_PALROW * 16 + 2] = RGB(31, 31, 31);
 }

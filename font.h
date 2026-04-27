@@ -8,6 +8,14 @@
 
 #define FONT_COLOR RGB(0, 0, 0)
 
+#define HUD_CUSTOM_FONT_TILEBASE 256
+#define HUD_CUSTOM_FONT_PALROW 13
+
+// custom font for the HUD text
+void hudFontInit(int charblock, int tileBase);
+void hudFontDrawString(int screenblock, int col, int row, const char* str);
+void hudFontLoadPalette(void);
+
 // The array of character data (256 chars * 6 * 8 = 12288)
 extern const unsigned char fontdata[12288]; // :contentReference[oaicite:1]{index=1}
 

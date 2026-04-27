@@ -279,24 +279,25 @@ void hideSprite(int index) {
 //                HUD / TEXT DRAWING
 // ======================================================
 
-// draws the HUD labels for the current level, inventory, and cheat status. It refreshes the text layer after gameplay state changes
+// draws the gameplay-only HUD using the custom 1x1 tile font.
+// Menu/title screens still use putText(), so their text is untouched.
 void drawHudText(void) {
     clearHud();
 
     if (currentLevel == LEVEL_HOME) {
-        putText(1, 1, "HOMEBASE");
+        hudFontDrawString(HUD_SCREENBLOCK, 1, 1, "HOMEBASE");
     } else if (currentLevel == LEVEL_ONE) {
-        putText(1, 1, "LEVEL 1");
+        hudFontDrawString(HUD_SCREENBLOCK, 1, 1, "LEVEL ONE");
     } else {
-        putText(1, 1, "LEVEL 2");
+        hudFontDrawString(HUD_SCREENBLOCK, 1, 1, "LEVEL TWO");
     }
 
     if (cheatModeEnabled) {
-        putText(16, 1, "DEBUG ENABLED");
+        hudFontDrawString(HUD_SCREENBLOCK, 16, 1, "DEBUG ENABLED");
     }
 
-    putText(1, 3, "INVENTORY:");
-    putText(1, 5, getInventoryText());
+    hudFontDrawString(HUD_SCREENBLOCK, 1, 3, "INVENTORY");
+    hudFontDrawString(HUD_SCREENBLOCK, 1, 5, getInventoryText());
 }
 
 // draws the title screen text on top of the shared menu background. The background itself is loaded elsewhere
@@ -304,9 +305,9 @@ void drawTitleScreen(void) {
     // The title artwork itself is the BG1 tilemap.
     // This function only draws the overlay text on BG0.
     clearHud();
-    putText(9, 6, "BEYOND THE SKY");
-    putText(9, 8, "COZY FARM GAME");
-    putText(10, 14, "PRESS START"); //9,14
+    putText(8, 6, "BEYOND THE SKY");
+    putText(8, 8, "COZY FARM GAME");
+    putText(9, 14, "PRESS START!"); 
 }
 
 // draws the instructions text for the current page. It reuses the menu background and only updates the text layer
@@ -318,16 +319,16 @@ void drawInstructionsPage(void) {
     if (instructionsPage == 0) {
         clearHud();
         putText(7, 4, "INSTRUCTIONS 1/2");
-        putText(8, 8,"LEFT/RIGHT MOVE");
+        putText(7, 8,"LEFT/RIGHT MOVE");
         putText(4, 10, "UP/DOWN JUMP OR CLIMB");
-        putText(8, 15, "< BACK    NEXT >");
+        putText(7, 15, "< BACK    NEXT >");
     } else {
         // Page 2 explains the main progression loop of the game.
         clearHud();
         putText(7, 4, "INSTRUCTIONS 2/2");
         putText(7, 8, "FINISH LEVELS TO");
         putText(4, 10, "GET RESOURCES, RETURN");
-        putText(3, 12, "HOME & PRESS B ON SOIL");
+        putText(3, 12, "HOME, PRESS B ON SOIL");
         putText(6, 16, "< PREV   START PLAY");
     }
 }
@@ -336,7 +337,7 @@ void drawInstructionsPage(void) {
 void drawPauseScreen(void) {
     // Draw pause text and hide gameplay sprites while paused.
     clearHud();
-    putText(10, 7, "PAUSED GAME");
+    putText(9, 7, "PAUSED GAME");
     putText(7, 11, "START TO RESUME"); 
     putText(2, 14, "SELECT TO RETURN TO TITLE"); 
     hideSprites();
@@ -348,7 +349,8 @@ void clearHud(void) {
     fontClearMap(HUD_SCREENBLOCK, 0);
 }
 
-// Writes a string to the HUD text layer at the given tile position. This is the basic helper used for menus and on-screen labels
+// Draws text onto the main text/HUD screenblock using the custom fontTiles font.
+// This keeps all existing title/menu/HUD code working without changing every call site.
 void putText(int col, int row, const char* str) {
-    fontDrawString(HUD_SCREENBLOCK, col, row, str);
+    hudFontDrawString(HUD_SCREENBLOCK, col, row, str);
 }

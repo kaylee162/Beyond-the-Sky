@@ -194,25 +194,31 @@ Files handled through:
 * Added a castle at the top of the level
 * If you collect a resource, and die inside a level, you lose the resource and have to complete the level again. 
 * Added a cozy looping background music
-* Added some action sounds for planting and damage
+* Added some action sounds for planting and damage effects
 
 ---
 
 ## Known Issues
 
-- Sound effects may need further balancing against music volume.
-- Timing on some effects can vary slightly depending on gameplay state.
+- Sound effect timing is off between the actions and the actual sound (see fixes)
 
 ---
+
+## Fixes
+
+- Trim the sound effects in channel b to get rid of that weird sound at the end
+- Add a delay for the losing state, so make it feel less sudden. This might also fix the sound timing with the 
+damage effect. 
+
+-- 
 
 ## Credits
 
 Developed as part of a **Game Boy Advance programming project** using:
 
-- devkitARM  
 - mGBA Emulator  
-- grit  
-- Tiled  
+- Tiled
+- Usenti  
 - Audacity  
 
-Music / sound sources used from royalty-free and converted assets.
+Music / sound sources used from royalty-free and converted assets

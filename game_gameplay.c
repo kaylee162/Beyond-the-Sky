@@ -75,10 +75,24 @@ void updateGameplayCommon(void) {
     // Update enemy movement after the player moves.
     updateBees();
 
-    // Check item pickups after movement so a new overlap this frame counts.
+    // check death as soon as movement/enemy updates are done
+    // this keeps the damanage sound tightly synced to actual hit frame
+    if (invincibilityCheat) {
+        if (fellOutOfLevel()) {
+            recoverFromInvincibleFall();
+            return;
+        } 
+    } else if (touchesHazard() || fellOutOfLevel() || playerTouchesBee()) {
+        // damanage sound effect on channel b, triggered before nay state/menu work
+        playSoundB(ouch_data, ouch_length, ouch_sampleRate, 0);
+        goToLose(currentLevel);
+        return;
+    }
+
+    // check item pickups after movement so a new overlap this frame counts
     updateCollectibles();
 
-    // Allow B to deposit the next required resource while standing on farmland.
+    // allow b to deposit the next required resource while standing on the farmland
     tryDepositResource();
 
     // Animate any active world collectibles.
@@ -96,30 +110,6 @@ void updateGameplayCommon(void) {
     // Win check happens after movement and transitions have settled.
     if (touchesWinTile()) {
         goToWin();
-        return;
-    }
-
-    // Hazard / death check
-    //
-    // Normal play:
-    // - hazard tiles kill the player
-    // - falling out of the level kills the player
-    // - touching a bee kills the player
-    //
-    // Invincibility cheat:
-    // - hazard tiles are ignored
-    // - in level two, falling out of the world is recovered instead of treated
-    //   as a death, so the player can move along the bottom safely
-    if (invincibilityCheat) {
-        if (fellOutOfLevel()) {
-            recoverFromInvincibleFall();
-            return;
-        }
-    } else if (touchesHazard() || fellOutOfLevel() || playerTouchesBee()) {
-        // damage sound effect (on channel B)
-        playSoundB(ouch_data, ouch_length, ouch_sampleRate, 0);
-
-        goToLose(currentLevel);
         return;
     }
 }

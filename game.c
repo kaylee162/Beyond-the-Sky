@@ -153,14 +153,14 @@ void drawGame(void) {
         case STATE_WIN:
             // The win screen is text-based, so clear the HUD layer first.
             clearHud();
-            putText(12, 8, "YOU WIN");
+            putText(11, 8, "YOU WIN");
             putText(2, 12, "PRESS START TO PLAY AGAIN");
             break;
 
         case STATE_LOSE:
             // The lose screen is also text-based and prompts the player to respawn.
             clearHud();
-            putText(10, 8, "YOU LOSE");
+            putText(12, 8, "YOU DIED");
             putText(5, 12, "PRESS START TO RESPAWN");
             break;
     }

@@ -315,33 +315,43 @@ void giveNextResourceCheat(void) {
     }
 }
 
-// returns the HUD string that describes the player's current inventory. The text changes as progression items are collected and deposited
+// Returns the HUD string that describes the player's current inventory.
+// The text updates dynamically as progression items are collected or used.
 const char* getInventoryText(void) {
-    // Build the HUD string that lists the items currently in the inventory bitmask.
-    //
-    // Inventory is stored as a bitmask rather than separate booleans so the
-    // player can hold multiple resources at once. Each item corresponds to one
-    // bit, which makes checks, adds, removes, and HUD rendering simple.
-    static char buffer[48];
+    // Static buffer so the returned pointer remains valid after the function exits.
+    static char buffer[64];
 
+    // Start fresh each call.
     buffer[0] = '\0';
 
+    // No items at all.
     if (inventoryFlags == 0) {
         strcpy(buffer, "EMPTY");
         return buffer;
     }
 
+    // Bean sprout (home progression item).
     if (inventoryFlags & INVENTORY_BEAN_SPROUT) {
         strcat(buffer, "BEAN SPROUT");
     }
 
+    // Bonemeal reward from level one.
     if (inventoryFlags & INVENTORY_BONEMEAL) {
-        if (buffer[0] != '\0') strcat(buffer, ", ");
+        // Add separator only if something is already written.
+        if (buffer[0] != '\0') {
+            strcat(buffer, ", ");
+        }
+
         strcat(buffer, "BONEMEAL");
     }
 
+    // Water reward from level two.
     if (inventoryFlags & INVENTORY_WATER) {
-        if (buffer[0] != '\0') strcat(buffer, ", ");
+        // Add separator only if another item is already listed.
+        if (buffer[0] != '\0') {
+            strcat(buffer, ", ");
+        }
+
         strcat(buffer, "WATER");
     }
 
