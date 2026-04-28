@@ -1,137 +1,122 @@
 #include "gba.h"
 #include "sound.h"
 
-Sound soundA;
-Sound soundB;
+SOUND soundA;
+SOUND soundB;
 
-void initSound(void) {
+void setupSounds() {
+
     REG_SOUNDCNT_X = SND_ENABLED;
 
-    REG_SOUNDCNT_H =
-        SND_OUTPUT_RATIO_100 |
-        DSA_OUTPUT_RATIO_100 |
-        DSA_OUTPUT_TO_BOTH |
-        DSA_TIMER0 |
-        DSA_FIFO_RESET |
-        DSB_OUTPUT_RATIO_100 |
-        DSB_OUTPUT_TO_BOTH |
-        DSB_TIMER1 |
-        DSB_FIFO_RESET;
+	REG_SOUNDCNT_H = SND_OUTPUT_RATIO_100 |
+                     DSA_OUTPUT_RATIO_100 |
+                     DSA_OUTPUT_TO_BOTH |
+                     DSA_TIMER0 |
+                     DSA_FIFO_RESET |
+                     DSB_OUTPUT_RATIO_100 |
+                     DSB_OUTPUT_TO_BOTH |
+                     DSB_TIMER1 |
+                     DSB_FIFO_RESET;
 
-    REG_SOUNDCNT_L = 0;
+	REG_SOUNDCNT_L = 0;
+
 }
 
-void playSoundA(const signed char* data, int length, int frequency, int loops) {
-    // stop the dma first 
-    DMA[1].ctrl = 0;
+void playSoundA(const signed char* data, int dataLength, int looping) {
+    
+    // Set DMA channel to 1
+    DMANow(1, (volatile void*) data, (volatile void*) REG_FIFO_A, DMA_DESTINATION_FIXED | DMA_AT_REFRESH | DMA_REPEAT | DMA_32);
 
-    int ticks = PROCESSOR_CYCLES_PER_SECOND / frequency;
-
+    // Set up timer 0
     REG_TM0CNT = 0;
-    REG_TM0D = -ticks;
+    int cyclesPerSecond = PROCESSOR_CYCLES_PER_SECOND / SOUND_FREQ;
+    REG_TM0D = 65536 - cyclesPerSecond;
     REG_TM0CNT = TIMER_ON;
 
-    DMA[1].src = data;
-    DMA[1].dest = &REG_FIFO_A;
-    DMA[1].ctrl = DMA_DESTINATION_FIXED | DMA_AT_REFRESH | DMA_REPEAT | DMA_32 | DMA_ON;
-
-    // sound state
+    // Initialize struct members of soundA
     soundA.data = data;
-    soundA.length = length;
-    soundA.frequency = frequency;
-    soundA.loops = loops;
+    soundA.dataLength = dataLength;
+    soundA.looping = looping;
     soundA.isPlaying = 1;
+    soundA.durationInVBlanks = (VBLANK_FREQ * dataLength) / SOUND_FREQ;
     soundA.vBlankCount = 0;
-    soundA.duration = ((length * 60) / frequency);
+
 }
 
-void playSoundB(const signed char* data, int length, int frequency, int loops) {
-    // Stop channel B completely before starting the new effect.
+void playSoundB(const signed char* data, int dataLength, int looping) {
+
+    // Set DMA channel to 2
     DMA[2].ctrl = 0;
+    DMANow(2, (volatile void*) data, (volatile void*) REG_FIFO_B, DMA_DESTINATION_FIXED | DMA_AT_REFRESH | DMA_REPEAT | DMA_32);
+
+    // Set up timer 1
     REG_TM1CNT = 0;
-
-    // Flush FIFO B so old action sound data does not play first.
-    REG_SOUNDCNT_H |= DSB_FIFO_RESET;
-
-    int ticks = PROCESSOR_CYCLES_PER_SECOND / frequency;
-    REG_TM1D = -ticks;
-
-    soundB.data = data;
-    soundB.length = length;
-    soundB.frequency = frequency;
-    soundB.loops = loops;
-    soundB.isPlaying = 1;
-    soundB.vBlankCount = 0;
-    soundB.duration = ((length * 60) / frequency);
-
-    // Prime FIFO B immediately so short sound effects start right away.
-    // This helps action sounds feel synced to deaths, deposits, and hits.
-    const unsigned int* soundData = (const unsigned int*) data;
-
-    if (length >= 16) {
-        REG_FIFO_B = soundData[0];
-        REG_FIFO_B = soundData[1];
-        REG_FIFO_B = soundData[2];
-        REG_FIFO_B = soundData[3];
-
-        DMA[2].src = data + 16;
-    } else {
-        DMA[2].src = data;
-    }
-
-    DMA[2].dest = &REG_FIFO_B;
-    DMA[2].ctrl = DMA_DESTINATION_FIXED | DMA_AT_REFRESH | DMA_REPEAT | DMA_32 | DMA_ON;
-
+    int cyclesPerSecond = PROCESSOR_CYCLES_PER_SECOND / SOUND_FREQ;
+    REG_TM1D = 65536 - cyclesPerSecond;
     REG_TM1CNT = TIMER_ON;
+
+    // Initialize struct members of soundB
+    soundB.data = data;
+    soundB.dataLength = dataLength;
+    soundB.looping = looping;
+    soundB.isPlaying = 1;
+    soundB.durationInVBlanks = (VBLANK_FREQ * dataLength) / SOUND_FREQ;
+    soundB.vBlankCount = 0;
+
 }
 
-void setupSounds(void) {
-    // sound A is the looping background sound
+void updateSounds() {
     if (soundA.isPlaying) {
         soundA.vBlankCount++;
 
-        if (soundA.vBlankCount > soundA.duration) {
-            if (soundA.loops) {
-                playSoundA(soundA.data, soundA.length, soundA.frequency, soundA.loops);
+        if (soundA.vBlankCount >= soundA.durationInVBlanks) {
+            if (soundA.looping) {
+                playSoundA(soundA.data, soundA.dataLength, soundA.looping);
             } else {
-                DMA[1].ctrl = 0;
                 soundA.isPlaying = 0;
+                REG_TM0CNT = 0;
+                DMA[1].ctrl = 0;
             }
         }
     }
 
-    // channel b has the action sounds (for damage and planing)
     if (soundB.isPlaying) {
         soundB.vBlankCount++;
 
-        if (soundB.vBlankCount > soundB.duration) {
-            if (soundB.loops) {
-                playSoundB(soundB.data, soundB.length, soundB.frequency, soundB.loops);
+        if (soundB.vBlankCount >= soundB.durationInVBlanks) {
+            if (soundB.looping) {
+                playSoundB(soundB.data, soundB.dataLength, soundB.looping);
             } else {
-                DMA[2].ctrl = 0;
                 soundB.isPlaying = 0;
+                REG_TM1CNT = 0;
+                DMA[2].ctrl = 0;
             }
         }
     }
 }
 
-void pauseSound(void) {
+void pauseSounds() {
+    soundA.isPlaying = 0;
     REG_TM0CNT = 0;
+    soundB.isPlaying = 0;
     REG_TM1CNT = 0;
+
 }
 
-void unpauseSound(void) {
+void unpauseSounds() {
+    soundA.isPlaying = 1;
     REG_TM0CNT = TIMER_ON;
+    soundB.isPlaying = 1;
     REG_TM1CNT = TIMER_ON;
+
 }
 
-void stopSound(void) {
+void stopSounds() {
+    soundA.isPlaying = 0;
+    REG_TM0CNT = 0;
     DMA[1].ctrl = 0;
+    soundB.isPlaying = 0;
+    REG_TM1CNT = 0;
     DMA[2].ctrl = 0;
 
-    REG_TM0CNT = 0;
-    REG_TM1CNT = 0;
-
-    soundA.isPlaying = 0;
-    soundB.isPlaying = 0;
 }

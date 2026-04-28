@@ -326,7 +326,7 @@ void startLoseDelay(void) {
     // Play the damage sound immediately on the death event.
     // could also use damage for a more classic damage sound effect
     // but I like ouch bc its funny
-    playSoundB(ouch_data, ouch_length, ouch_sampleRate, 0);
+    playSoundB(ouch_data, ouch_length, 0);
 }
 
 // Counts down the delayed lose transition.

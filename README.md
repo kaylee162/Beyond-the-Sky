@@ -200,15 +200,7 @@ Files handled through:
 
 ## Known Issues
 
-- Sound effect timing is off between the actions and the actual sound (see fixes)
-
----
-
-## Fixes
-
-- Trim the sound effects in channel b to get rid of that weird sound at the end
-- Add a delay for the losing state, so make it feel less sudden. This might also fix the sound timing with the 
-damage effect. 
+- Sound effects on channel B are a bit out of sync with actual actions. 
 
 -- 
 

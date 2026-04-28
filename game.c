@@ -60,10 +60,11 @@ void initGame(void) {
     // Set up VRAM, backgrounds, sprite systems, palettes, and other display data.
     initGraphics();
 
-    // Initalize sound
-    initSound();
-    // set up sound A as the background music
-    playSoundA(background_music_data, background_music_length, background_music_sampleRate, 1);
+    // Initialize the provided Direct Sound setup once at the start of the game.
+    setupSounds();
+
+    // Start looping background music on channel A.
+    playSoundA(background_music_data, background_music_length, 1);
 
     // Reset frame-based systems and progression tracking for a fresh playthrough.
     frameCounter = 0;
@@ -99,8 +100,8 @@ void updateGame(void) {
     // Count frames globally so timed systems can reference one shared clock.
     frameCounter++;
 
-    // setup sound as looping and non-looping sounds sounds restart / stop correctly
-    setupSounds();
+    // Keep one-shot sounds from running past their data, and restart looping sounds.
+    updateSounds();
 
     // Run only the logic for the currently active game state.
     switch (state) {

@@ -283,7 +283,7 @@ void tryDepositResource(void) {
             beanstalkGrowthStage = 1;
 
             // planting sound effect
-            playSoundB(planting_data, planting_length, planting_sampleRate, 0);
+            playSoundB(planting_data, planting_length, 0);
 
             refreshHomeBeanstalkVisuals();
         }
@@ -293,7 +293,7 @@ void tryDepositResource(void) {
             beanstalkGrowthStage = 2;
 
             // planting sound effect
-            playSoundB(planting_data, planting_length, planting_sampleRate, 0);
+            playSoundB(planting_data, planting_length, 0);
 
             refreshHomeBeanstalkVisuals();
         }
@@ -303,7 +303,7 @@ void tryDepositResource(void) {
             beanstalkGrowthStage = 3;
 
             // planting sound effect
-            playSoundB(planting_data, planting_length, planting_sampleRate, 0);
+            playSoundB(planting_data, planting_length, 0);
             
             refreshHomeBeanstalkVisuals();
         }

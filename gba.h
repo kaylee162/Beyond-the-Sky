@@ -101,43 +101,4 @@ typedef volatile struct {
 // Immediately begins a DMA transfer using parameters
 void DMANow(int channel, volatile void* src, volatile void* dest, unsigned int ctrl);
 
-// Sound macros
-#define PROCESSOR_CYCLES_PER_SECOND 16777216
-
-#define REG_SOUNDCNT_X (*(volatile unsigned short*) 0x4000084)
-#define REG_SOUNDCNT_L (*(volatile unsigned short*) 0x4000080)
-#define REG_SOUNDCNT_H (*(volatile unsigned short*) 0x4000082)
-
-#define REG_FIFO_A (*(volatile unsigned int*) 0x40000A0)
-#define REG_FIFO_B (*(volatile unsigned int*) 0x40000A4)
-
-#define SND_ENABLED (1 << 7)
-
-#define SND_OUTPUT_RATIO_100 (1 << 1)
-
-#define DSA_OUTPUT_RATIO_50 0
-#define DSA_OUTPUT_RATIO_100 (1 << 2)
-#define DSA_OUTPUT_TO_RIGHT (1 << 8)
-#define DSA_OUTPUT_TO_LEFT (1 << 9)
-#define DSA_OUTPUT_TO_BOTH (3 << 8)
-#define DSA_TIMER0 0
-#define DSA_TIMER1 (1 << 10)
-#define DSA_FIFO_RESET (1 << 11)
-
-#define DSB_OUTPUT_RATIO_50 0
-#define DSB_OUTPUT_RATIO_100 (1 << 3)
-#define DSB_OUTPUT_TO_RIGHT (1 << 12)
-#define DSB_OUTPUT_TO_LEFT (1 << 13)
-#define DSB_OUTPUT_TO_BOTH (3 << 12)
-#define DSB_TIMER0 0
-#define DSB_TIMER1 (1 << 14)
-#define DSB_FIFO_RESET (1 << 15)
-
-#define REG_TM0D (*(volatile unsigned short*) 0x4000100)
-#define REG_TM0CNT (*(volatile unsigned short*) 0x4000102)
-#define REG_TM1D (*(volatile unsigned short*) 0x4000104)
-#define REG_TM1CNT (*(volatile unsigned short*) 0x4000106)
-
-#define TIMER_ON (1 << 7)
-
 #endif
