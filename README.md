@@ -1,216 +1,264 @@
-# Beyond the Sky
+# Beyond the Sky  
+**CS 2261 Final Project**  
 
-## Overview
-
-**Beyond the Sky** is a Game Boy Advance platformer built in **Mode 0** using tilemaps, sprites, DMA, collision maps, and Direct Sound.
-
-The player explores a home base, gathers resources across two sky levels, upgrades a magical beanstalk, and climbs toward the castle above the clouds.
+A polished retro platforming / progression game built for the Game Boy Advance in **Mode 0** using tiled backgrounds, sprites, collision maps, sound, runtime tilemap changes, and palette effects.
 
 ---
 
-## Controls
+# Game Overview
 
-- **D-Pad Left / Right** → Move  
-- **D-Pad Up** → Jump  
-- **A Button** → Climb ladders / beanstalk  
-- **START** → Pause / Resume  
-- **LEFT / RIGHT** (Instructions) → Change pages  
-- **SELECT + B** → Toggle cheat mode  
-- **SELECT + A** → Grant next required resource (debug)
+You begin at your home farm with a small bean sprout. To grow it into a giant beanstalk and reach the castle in the sky, you must explore two platforming levels and recover the resources needed for growth.
 
----
+- **Level 1:** Retrieve **Bonemeal**
+- **Level 2:** Retrieve **Water**
+- Bring each item back home and deposit them (button B) on the farmland to grow your stalk
+- Climb the completed beanstalk
+- Reach the castle to win
 
-## Core Gameplay Loop
-
-1. Start in the **Home Base**
-2. Collect the **Bean Sprout**
-3. Plant it in the farmland
-4. Travel to **Level 1** and collect **Bonemeal**
-5. Return home and upgrade the beanstalk
-6. Travel to **Level 2** and collect **Water**
-7. Return home and fully grow the beanstalk
-8. Climb to the castle and win
+The game combines exploration, movement, hazards, enemy avoidance, progression, and visual world changes.
 
 ---
 
-## Game States
+# Controls
 
-- Start Screen  
-- Instructions Screen  
-- Home Base  
-- Level 1  
-- Level 2  
-- Pause Screen  
-- Win Screen  
-- Lose Screen  
-
-State transitions are managed through a modular state system in `game_states.c`.
+| Input | Action |
+|------|--------|
+| D-Pad Left / Right | Move |
+| D-Pad Up | Jump / Climb Up |
+| D-Pad Down | Climb Down |
+| START | Pause |
+| A (menus) | Confirm |
+| B (menus) | Back |
+| SELECT + A | Cheat: grants next needed resource |
+| SELECT + B | Debug Feature: invincibility mode |
 
 ---
 
-## Major Features
+# Final Project Rubric Checklist
 
-## Player Movement
+## 1. At Least 4 Unique Sprites (2 Animated)
 
-- Smooth left / right movement
-- Gravity and jumping
-- Ladder / beanstalk climbing
-- Improved ladder-top exit behavior
-- Safe respawn handling after hazards
+Implemented **5 unique sprites**:
 
-## World Progression
+- Player  
+- Bee Enemy  
+- Bean Sprout  
+- Bonemeal  
+- Water Droplet  
 
-Multi-stage beanstalk growth using runtime tilemap edits:
+### Animated Sprites
+- **Player** uses walking animation frames  
+- **Bee** uses flapping animation frames  
 
-1. Empty farmland  
-2. Seed planted  
-3. Partial beanstalk growth  
-4. Full beanstalk growth  
+### Additional Motion
+- Bonemeal and Water Droplet gently float / bob.
 
-## Camera System
+**Code Locations:**  
+- `game_entities.c`  
+- `game_gameplay.c`  
+- `game_render.c`
 
-- Side-scrolling camera in Level 1 and Level 2
-- Camera follows player position
-- Scroll clamped to map bounds
-- Stable transitions between maps
+---
 
-## Background Effects
+## 2. Two Backgrounds That Move Independently
 
-- Multi-layer tile backgrounds
-- Animated clouds with parallax movement
-- Runtime palette day/night cycle:
-  - Morning
-  - Day
-  - Sunset
-  - Night
+Implemented layered scrolling backgrounds:
 
-## HUD / UI
+- **BG1:** Moving cloud layer  
+- **BG2:** Main world camera scrolling with player movement  
 
-Top HUD displays:
+Creates a parallax effect.
 
-- Current area
-- Inventory
-- Cheat mode status
+**Code Locations:**  
+- `game_render.c`  
+- `levels.c`
 
-Uses a dedicated font layer and HUD panel for readability.
+---
 
-## Enemies
+## 3. Modify Tilemaps / Tiles at Runtime
 
-- Animated bee enemy
-- Patrol movement
-- Collision damage
+The home world visually changes as progress is made.
 
-## Audio
+### Runtime Changes:
+- Empty farmland  
+- Seed planted  
+- Partial beanstalk growth  
+- Full beanstalk grown  
 
-Implemented with GBA Direct Sound:
+These are written directly into VRAM tilemap memory during gameplay.
 
-- Looping background music
-- Planting / deposit sound effect
-- Damage sound effect
+**Code Locations:**  
+- `game_home.c`  
+- `refreshHomeBeanstalkVisuals()`
 
-Files handled through:
+---
 
-- `sound.c`
+## 4. Modify Palette at Runtime
+
+The sky color changes during gameplay through a full-time-of-day cycle:
+
+- Early Morning  
+- Day  
+- Sunset  
+- Night  
+
+Palette memory is directly edited at runtime.
+
+**Code Locations:**  
+- `game_render.c`  
+- `updateDaytimePalette()`
+
+---
+
+## 5. Required States
+
+Implemented all required states:
+
+- START  
+- INSTRUCTIONS  
+- GAME  
+- PAUSE  
+
+Also includes:
+
+- WIN  
+- LOSE  
+
+**Code Locations:**  
+- `game_states.c`
+
+---
+
+## 6. Win / Lose State + Restart
+
+### Win Condition
+Grow the beanstalk, climb it, and reach the castle.
+
+### Lose Condition
+Touch hazards or enemy bees.
+
+### Restart Support
+Player can return to gameplay without restarting emulator.
+
+**Code Locations:**  
+- `game_states.c`
+
+---
+
+## 7. Two Simultaneous Sounds
+
+Implemented GBA Direct Sound:
+
+### Channel A
+Looping background music.
+
+### Channel B
+Action sound effects:
+
+- Damage
+- Planting
+
+Both channels can play simultaneously.
+
+**Code Locations:**  
+- `sound.c`  
 - `sound.h`
-- `background_music.*`
-- `planting.*`
-- `ouch.*`
 
 ---
 
-## Technical Highlights
+## 8. Cheat Mechanic
 
-- **Mode 0 tiled rendering**
-- Multiple background layers
-- Sprite animation system
-- DMA memory transfers
-- Collision maps
-- Palette editing at runtime
-- Modular game architecture
-- Direct Sound using timers + FIFO + DMA
+Press:
 
----
+**SELECT + A**
 
-## Updated File Structure
+Grants the next required progression resource.
 
-## Core Game Logic
+Examples:
 
-- `main.c` – program entry point  
-- `game.c` – main game loop / state dispatch  
-- `game.h` – shared structs, constants, globals  
-- `game_internal.h` – internal prototypes  
+- Gives Bonemeal first  
+- Gives Water second  
 
-## Gameplay Modules
+This helps progression but does not instantly win.
 
-- `game_states.c` – state transitions  
-- `game_gameplay.c` – runtime gameplay logic  
-- `game_home.c` – home base progression logic  
-- `game_entities.c` – player / enemies / items  
-- `game_collision.c` – movement + collision checks  
-- `game_render.c` – HUD / sprites / visual rendering  
-- `game_system.c` – shared systems / helpers  
-
-## Assets
-
-- Tilemaps, collision maps, palettes, spritesheets
-- Music and sound effect data converted to C arrays
+**Code Locations:**  
+- `game_gameplay.c`
 
 ---
 
-## Progress & Milestones
+## 9. Playable Through In-Game Instructions
 
-### Milestone One COMPLETE
+Instructions state explains:
 
-* Core gameplay loop implemented
-* Player movement and collision system working
-* Tileset and Tilemaps working in game
-* Player sprite properly displayed, and animated (although animation frames have not been completed)
-* Level transitions somewhat functional
+- Movement  
+- Climbing  
+- Goal of collecting resources  
+- Returning home  
+- Winning objective  
 
----
+No outside explanation needed.
 
-### Milestone Two COMPLETE
-
-* Resource items (sprites: bonemeal & droplet) properly added in game
-* Deposit logic for the bonemeal and water droplet working perfectly with tile modification
-* Tile modification for beanstalk at runtime implement correctly and smoothly
-* Updated collison map logic to go with the tile modification
-* Parallax background with animated clouds
-* Updated collision checking for player & platforms
-* Cleaner Instructions pages and logic
-* Smooth animated daylight cycle (palette modification at runtime)
-* Get instant resource cheat
-* Updated Spritesheet with player animations
-* Added bee sprite to the game with animations
-* Enemy game logic with the bee sprite
+**Code Locations:**  
+- `game_states.c`
 
 ---
 
-### Milestone Three COMPLETE
+## 10. Bug-Free / Polished Gameplay
 
-* Directional signs in levels for guidance for the player
-* Themed UI screens for Start, Instructions, Pause & Win / Lose  
-* Refactored the codebase to clean up game.c & organize the code better
-* Added a castle at the top of the level
-* If you collect a resource, and die inside a level, you lose the resource and have to complete the level again. 
-* Added a cozy looping background music
-* Added some action sounds for planting and damage effects
+Project includes:
+
+- Smooth scrolling camera  
+- Stable collisions  
+- Ladder / beanstalk climbing  
+- Enemy patrol logic  
+- Pause system  
+- Resource inventory tracking  
+- Multiple levels  
+- Organized modular codebase
 
 ---
 
-## Known Issues
+# Technical Highlights
 
-- Sound effects on channel B are a bit out of sync with actual actions. 
+- Built entirely in **C**
+- GBA **Mode 0 tiled engine**
+- Collision map system
+- Runtime VRAM editing
+- Runtime palette transitions
+- Multi-file architecture
+- Direct Sound audio engine
+- Custom HUD text rendering
 
--- 
+---
 
-## Credits
+# File Structure
 
-Developed as part of a **Game Boy Advance programming project** using:
+| File | Purpose |
+|------|---------|
+| `main.c` | Main loop |
+| `game_states.c` | State transitions |
+| `game_gameplay.c` | Core gameplay loop |
+| `game_entities.c` | Bees / pickups |
+| `game_collision.c` | Collision logic |
+| `game_home.c` | Home growth system |
+| `game_render.c` | HUD / drawing |
+| `sound.c` | Audio engine |
+| `levels.c` | Map loading |
 
-- mGBA Emulator  
-- Tiled
-- Usenti  
-- Audacity  
+---
 
-Music / sound sources used from royalty-free and converted assets
+# Why This Project Stands Out
+
+Beyond the Sky focuses on **visible progression**.  
+As the player succeeds, the world physically changes, culminating in climbing a giant beanstalk into the sky.
+
+I also created all the visual resources for the game. I made all my tilesets, sprites, and fontTiles by hand. 
+
+---
+
+# Credits
+
+Created for **CS 2261 - Media Device Architecture**  
+Georgia Institute of Technology
+
+Graphics, programming, gameplay design, and implementation by Kaylee Henry.
