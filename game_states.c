@@ -296,6 +296,10 @@ void goToLose(int levelToReturnTo) {
     setMenuPalette();
 }
 
+// ======================================================
+//                LOSE-STATE HELPERS
+// ======================================================
+
 // Sends the player back into the appropriate gameplay level after a loss. It uses the stored return target so the respawn behavior matches where the player died
 void respawnIntoCurrentLevel(void) {
     // Reload the level stored by the lose screen and respawn the player there.
@@ -305,6 +309,40 @@ void respawnIntoCurrentLevel(void) {
         goToLevelOne(1);
     } else {
         goToLevelTwo(1);
+    }
+}
+
+// Starts a short delay before entering the lose state.
+// This lets the player see the death moment and lets the damage sound start
+// before the screen changes.
+void startLoseDelay(void) {
+    if (loseTransitionActive) {
+        return;
+    }
+
+    loseTransitionActive = 1;
+    loseDelayCounter = LOSE_DELAY_FRAMES;
+
+    // Play the damage sound immediately on the death event.
+    // could also use damage for a more classic damage sound effect
+    // but I like ouch bc its funny
+    playSoundB(ouch_data, ouch_length, ouch_sampleRate, 0);
+}
+
+// Counts down the delayed lose transition.
+// Once the timer finishes, the actual lose screen is shown.
+void updateLoseDelay(void) {
+    if (!loseTransitionActive) {
+        return;
+    }
+
+    loseDelayCounter--;
+
+    if (loseDelayCounter <= 0) {
+        loseTransitionActive = 0;
+        loseDelayCounter = 0;
+
+        goToLose(currentLevel);
     }
 }
 

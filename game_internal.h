@@ -132,4 +132,12 @@ void drawPauseScreen(void);
 void clearHud(void);
 void putText(int col, int row, const char* str);
 
+#define LOSE_DELAY_FRAMES 22 
+
+extern int loseDelayCounter;
+extern int loseTransitionActive;
+
+void startLoseDelay(void);
+void updateLoseDelay(void);
+
 #endif

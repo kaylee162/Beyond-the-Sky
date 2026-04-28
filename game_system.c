@@ -50,6 +50,10 @@ void handleLevelTransitions(void);
 void putText(int col, int row, const char* str);
 void clearHud(void);
 
+// Used to make death feel less sudden before switching to the lose screen.
+int loseDelayCounter = 0;
+int loseTransitionActive = 0;
+
 // Tracks which instructions page is currently being shown across menu states.
 int instructionsPage = 0;
 

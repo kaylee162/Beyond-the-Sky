@@ -36,6 +36,13 @@ void updateGameplayCommon(void) {
     // gameplay systems in the order that keeps movement, collisions, pickups,
     // transitions, and win/lose checks consistent.
 
+    // If the player has already died, freeze normal gameplay for a short beat
+    // before switching to the lose screen. This makes death feel less sudden.
+    if (loseTransitionActive) {
+        updateLoseDelay();
+        return;
+    }
+
     // START pauses the game immediately before the rest of the frame continues.
     if (BUTTON_PRESSED(BUTTON_START)) {
         goToPause();
@@ -83,9 +90,7 @@ void updateGameplayCommon(void) {
             return;
         } 
     } else if (touchesHazard() || fellOutOfLevel() || playerTouchesBee()) {
-        // damanage sound effect on channel b, triggered before nay state/menu work
-        playSoundB(ouch_data, ouch_length, ouch_sampleRate, 0);
-        goToLose(currentLevel);
+        startLoseDelay();
         return;
     }
 
